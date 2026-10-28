@@ -8,8 +8,20 @@ receivers:
 
 processors:
   # Drop account identity before anything is written. user.id and session.id stay.
+  # Applied to span and log record attributes (not span events; the parser drops them there)...
   attributes/strip_identity:
     actions:
+      - key: user.email
+        action: delete
+      - key: user.account_uuid
+        action: delete
+      - key: user.account_id
+        action: delete
+      - key: organization.id
+        action: delete
+  # ...and to resource attributes, in case an exporter puts them there.
+  resource/strip_identity:
+    attributes:
       - key: user.email
         action: delete
       - key: user.account_uuid
@@ -21,9 +33,15 @@ processors:
   batch:
 
 exporters:
-  # One OTLP JSON export request per line; each line can hold many spans.
-  file:
+  # One OTLP JSON export request per line; each line can hold many spans or log records.
+  file/traces:
     path: /data/raw/traces.jsonl
+    format: json
+    rotation:
+      max_megabytes: 100
+      max_backups: 100
+  file/logs:
+    path: /data/raw/logs.jsonl
     format: json
     rotation:
       max_megabytes: 100
@@ -37,5 +55,10 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [attributes/strip_identity, batch]
-      exporters: [file, otlp/jaeger]
+      processors: [attributes/strip_identity, resource/strip_identity, batch]
+      exporters: [file/traces, otlp/jaeger]
+    # Claude Code log events; tool_result carries tool arguments (tool_input, tool_parameters).
+    logs:
+      receivers: [otlp]
+      processors: [attributes/strip_identity, resource/strip_identity, batch]
+      exporters: [file/logs]

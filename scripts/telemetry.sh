@@ -17,6 +17,7 @@ export CLAUDE_CODE_ENABLE_TELEMETRY=1
 export CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1 # traces are a beta feature
 
 export OTEL_TRACES_EXPORTER=otlp
+export OTEL_LOGS_EXPORTER=otlp # tool_result events carry the tool arguments
 export OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 
@@ -25,10 +26,10 @@ export OTEL_LOG_TOOL_CONTENT=1 # tool output, as the tool.output span event
 
 telemetry_off() {
   unset CLAUDE_CODE_ENABLE_TELEMETRY CLAUDE_CODE_ENHANCED_TELEMETRY_BETA \
-    OTEL_TRACES_EXPORTER OTEL_EXPORTER_OTLP_PROTOCOL OTEL_EXPORTER_OTLP_ENDPOINT \
+    OTEL_TRACES_EXPORTER OTEL_LOGS_EXPORTER OTEL_EXPORTER_OTLP_PROTOCOL OTEL_EXPORTER_OTLP_ENDPOINT \
     OTEL_LOG_TOOL_DETAILS OTEL_LOG_TOOL_CONTENT
   unset -f telemetry_off
   echo "Claude Code telemetry off for this shell."
 }
 
-echo "Claude Code traces -> localhost:4317 (tool details and content on). Run 'claude' in this shell."
+echo "Claude Code traces and logs -> localhost:4317 (tool details and content on). Run 'claude' in this shell."
