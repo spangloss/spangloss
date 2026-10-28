@@ -1,0 +1,19 @@
+# Local capture stack: Claude Code -> OTel Collector -> data/raw/ (JSON lines) + Jaeger.
+# Ports are bound to 127.0.0.1 only: captured spans contain tool arguments and output.
+services:
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel/collector.yaml:/etc/otelcol/config.yaml:ro
+      - ./data/raw:/data/raw
+    ports:
+      - "127.0.0.1:4317:4317" # OTLP gRPC
+      - "127.0.0.1:4318:4318" # OTLP HTTP
+    depends_on:
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0
+    ports:
+      - "127.0.0.1:16686:16686" # UI
