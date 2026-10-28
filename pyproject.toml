@@ -1,0 +1,25 @@
+[project]
+name = "spangloss"
+version = "0.0.1"
+description = "Security labels for AI agent telemetry: typed, probabilistic annotations on OpenTelemetry spans."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+authors = [{ name = "Phil DiCorpo" }]
+keywords = ["opentelemetry", "ai-agents", "security", "mcp", "observability"]
+classifiers = [
+  "Development Status :: 1 - Planning",
+  "Programming Language :: Python :: 3",
+  "Topic :: Security",
+  "Topic :: System :: Monitoring",
+]
+
+[project.urls]
+Homepage = "https://github.com/spangloss/spangloss"
+
+[project.scripts]
+spangloss = "spangloss:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
