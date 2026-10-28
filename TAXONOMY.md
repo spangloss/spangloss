@@ -95,7 +95,7 @@ These apply to every label unless its notes say otherwise.
 - Judge the action type, not the environment. Do not credit or discount version control, trash or backups that the span does not show: editing a file is `recoverable` (the file remains), deleting a source file is `irreversible` (the entity is gone).
 - Deleting generated artifacts (build outputs, caches, dependency directories such as `dist/`, `build/`, `node_modules/`, `__pycache__/`) is `recoverable`, because a build regenerates them.
 - A file write is `reversible` only when the span shows the file is new (for example, the tool output says it was created). Otherwise it may have overwritten something, so it is `recoverable`.
-- `execute` calls with unseen effects are `recoverable` unless a visible component is `irreversible`. Applying the worst case here would make every test run `irreversible` and empty the label of meaning.
+- `execute` calls with unseen effects are `recoverable` unless a visible component is `irreversible` (Labeling rule 2).
 - "Undone" means by the user with their own access, without a third party's help.
 - Data leaving the user's control is not part of this label; that is `sec.trifecta.sink`. Sending a message is `irreversible` because the message itself cannot be recalled.
 
@@ -135,7 +135,7 @@ Three independent yes/no questions. A call can be any combination.
 
 - These feed the lethal-trifecta detection rule. `sink` is the single source of truth for "data leaves."
 - `untrusted_source` is judged by source type, not by who wrote each line. The user's project files count as the user's own even if outside contributors wrote some of them; otherwise every repository would be untrusted.
-- `sink` needs a visible network destination or a tool whose purpose is sending. A script that *might* make network calls is not a sink unless its arguments show one; under the worst case, every `execute` would be a sink.
+- `sink` needs a visible network destination or a tool whose purpose is sending. A script that *might* make network calls is not a sink unless its arguments show one (Labeling rule 2).
 - Rule design must account for overlap: one web fetch is both `untrusted_source` and `sink`, so a web fetch plus any project file read already sets all three.
 
 ### `sec.intent` — tier 2
