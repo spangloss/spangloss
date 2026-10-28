@@ -1,6 +1,6 @@
 # Spangloss label taxonomy
 
-**Version:** 0.2.0 (draft) · **Status:** v0 core, tiers 1–2 only
+**Version:** 0.2.1 (draft) · **Status:** v0 core, tiers 1–2 only
 
 Spangloss labels each agent tool call by asking a decision model a small set of narrow, typed questions. This file defines those questions, their answer sets, and when each one is asked. Code in `questions/` implements this file; when they disagree, this file wins.
 
@@ -43,7 +43,7 @@ A label is only asked when the span meets its minimum basis. Labels that are not
 These apply to every label unless its notes say otherwise.
 
 1. **Label the call as requested.** Decide from the tool name and arguments what the call does, whether it succeeded, failed or was denied. Outcome comes from the span's own status, not from labels.
-2. **Unseen facts: take the more severe answer.** When something the span does not show could change the answer (what a file contains, where a request goes, whether a repository is public), choose the more severe answer by the label's severity order below. `sec.reversibility` is the exception: it judges the action type, not the environment (see its notes).
+2. **Unseen facts: take the more severe answer only when the span points to it.** When the span names something whose relevant property it doesn’t show (a path that conventionally holds secrets, a push to a repository of unknown visibility, a request to an external host), choose the more severe answer. Don’t presume severe facts the span gives no sign of: an unseen file is not presumed to hold secrets, and a script is not presumed to make network calls.
 3. **Compound calls: most severe component.** When one call does several things (`a && b`, pipes, multi-edit tools), answer each label for its most severe component. For yes/no labels, answer `yes` if any component qualifies. `sec.intent` has no severity order; label the purpose of the call as a whole.
 4. **Use all visible evidence.** Some tools carry content in their arguments (a file-write tool carries the new text; a web-fetch tool carries only a URL). Labels use everything visible at the span's basis, including content carried in arguments.
 5. **Effect is what happens; intent is why.** A call made through a shell is not `execute` by default. `rm -rf build/` is effect `delete`, intent `modify`.
@@ -188,7 +188,7 @@ Every labeled span also carries:
 sec.<label>.p: <0.0–1.0>     # probability the chosen answer is correct (Labeling rule 6)
 sec.basis: name_only | args | content
 sec.model: <backend and version>
-sec.taxonomy: 0.2.0
+sec.taxonomy: 0.2.1
 ```
 
 ## Experimental (off by default)
@@ -204,5 +204,6 @@ sec.taxonomy: 0.2.0
 
 ## Changelog
 
+- **0.2.1** — Labeling rule 2 (unseen facts) narrowed: take the more severe answer only when the span points to the unseen fact (a path that conventionally holds secrets, a push to a repository of unknown visibility, a request to an external host). Severe facts the span gives no sign of are not presumed. The explicit `sec.reversibility` exception is removed, since judging by action type now follows from the rule.
 - **0.2.0** — Clarified definitions after a review for labeler disagreement. Added Labeling rules: label the call as requested, severity orders for unseen facts and compound calls, purpose over mechanism, and the meaning of `p`. `effect`: `delete` means whole entities only, sending creates `write`, `execute` is not a "can't tell" fallback. `reversibility`: judged by action type, not environment; egress moved out to `sink`; generated artifacts are `recoverable`. `data_class`: locations count as contents; placeholders, test values and dev metadata excluded; payment-provider keys are `secrets`. `trifecta`: "no" examples added; `untrusted_source` judged by source type; `sink` needs a visible destination. `intent`: boundaries between `retrieve` and `explore`, `modify`, `communicate` and `transact`, and `access_control` defined; subagent spawning is `other`. `injection`: redefined around "beyond the content's evident purpose", with rules for instruction files, tool guidance, quoted payloads and hidden text. Open items moved to a revisit list.
 - **0.1.0** — Initial draft. Egress removed from `effect` (owned by `trifecta.sink`); `proprietary` removed from `data_class` pending revisit; no abstain answers; parent tool spans only.
