@@ -7,6 +7,17 @@ receivers:
         endpoint: 0.0.0.0:4318
 
 processors:
+  # Drop account identity before anything is written. user.id and session.id stay.
+  attributes/strip_identity:
+    actions:
+      - key: user.email
+        action: delete
+      - key: user.account_uuid
+        action: delete
+      - key: user.account_id
+        action: delete
+      - key: organization.id
+        action: delete
   batch:
 
 exporters:
@@ -26,5 +37,5 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [batch]
+      processors: [attributes/strip_identity, batch]
       exporters: [file, otlp/jaeger]

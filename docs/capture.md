@@ -9,6 +9,19 @@ claude ──OTLP──▶ collector ──▶ data/raw/traces.jsonl
 
 Captured spans include tool arguments and tool output, so they can contain secrets and personal data. `data/raw/` is git-ignored; never commit anything from it.
 
+## What the Collector removes
+
+Claude Code attaches the signed-in account's identity to every span. The Collector deletes these attributes before writing to disk or forwarding to Jaeger:
+
+- `user.email`
+- `user.account_uuid`
+- `user.account_id`
+- `organization.id`
+
+They identify a person and an organization, and no label or rule needs them. It keeps `user.id` and `session.id`, which group spans into sessions without naming anyone.
+
+This only removes those attribute keys. Personal data inside tool arguments or output (an email address in `git log`, for example) still reaches `data/raw/` and must be redacted before anything goes into the evaluation set. Spans captured before this change still contain the identity attributes.
+
 ## 1. Start the stack
 
 ```
