@@ -9,6 +9,13 @@ from pathlib import Path
 
 from spangloss import __version__
 from spangloss.backends import Backend
+from spangloss.eval import (
+    DEFAULT_GOLD,
+    DEFAULT_SHEET,
+    SheetError,
+    export_sheet,
+    import_sheet,
+)
 from spangloss.parse import ParsedToolCall, parse_claude_code
 from spangloss.questions import label_call, load_cards
 from spangloss.questions.runner import DEFAULT_MAX_EVIDENCE_CHARS
@@ -60,6 +67,24 @@ def main(argv: list[str] | None = None) -> int:
         help=f"default: {DEFAULT_MAX_EVIDENCE_CHARS}",
     )
 
+    export = commands.add_parser(
+        "export-sheet", help="Write a CSV sheet of tool calls to label by hand."
+    )
+    export.add_argument("--limit", type=int, required=True, help="at most N calls")
+    export.add_argument("--input", type=Path, default=DEFAULT_OUTPUT)
+    export.add_argument("--out", type=Path, default=DEFAULT_SHEET)
+    export.add_argument("--gold", type=Path, default=DEFAULT_GOLD)
+    export.add_argument(
+        "--force", action="store_true", help="overwrite an existing sheet"
+    )
+
+    imp = commands.add_parser(
+        "import-sheet", help="Validate a filled sheet and add it to the gold labels."
+    )
+    imp.add_argument("sheet", type=Path)
+    imp.add_argument("--input", type=Path, default=DEFAULT_OUTPUT)
+    imp.add_argument("--gold", type=Path, default=DEFAULT_GOLD)
+
     args = parser.parse_args(argv)
     if args.command == "label":
         return _label(
@@ -69,7 +94,44 @@ def main(argv: list[str] | None = None) -> int:
             args.limit,
             args.max_evidence_chars,
         )
+    if args.command == "export-sheet":
+        return _export_sheet(args.input, args.out, args.gold, args.limit, args.force)
+    if args.command == "import-sheet":
+        return _import_sheet(args.sheet, args.input, args.gold)
     return _parse(args.input, args.logs, args.output)
+
+
+def read_calls(path: Path) -> list[ParsedToolCall]:
+    with path.open(encoding="utf-8") as f:
+        return [ParsedToolCall(**json.loads(line)) for line in f if line.strip()]
+
+
+def _export_sheet(calls: Path, out: Path, gold: Path, limit: int, force: bool) -> int:
+    try:
+        n = export_sheet(read_calls(calls), out, limit, gold=gold, force=force)
+    except FileExistsError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(f"wrote {n} tool calls to {out}", file=sys.stderr)
+    return 0
+
+
+def _import_sheet(sheet: Path, calls: Path, gold: Path) -> int:
+    try:
+        result = import_sheet(sheet, read_calls(calls), gold=gold)
+    except SheetError as e:
+        print(
+            f"{sheet}: {len(e.problems)} problem(s), nothing written:", file=sys.stderr
+        )
+        for problem in e.problems:
+            print(f"  {problem}", file=sys.stderr)
+        return 1
+    print(
+        f"{sheet}: {result.labeled} calls imported, {result.skipped_blank} blank rows"
+        f" skipped; {gold} now holds {result.gold_total} calls",
+        file=sys.stderr,
+    )
+    return 0
 
 
 def make_backend(name: str) -> Backend:
@@ -83,8 +145,7 @@ def _label(
 ) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
     cards = load_cards()
-    with calls_path.open(encoding="utf-8") as f:
-        calls = [ParsedToolCall(**json.loads(line)) for line in f if line.strip()]
+    calls = read_calls(calls_path)
 
     with LabelStore(db) as store:
         done = store.labeled_span_ids(backend.model)
