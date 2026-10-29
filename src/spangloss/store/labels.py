@@ -23,12 +23,16 @@ CREATE TABLE IF NOT EXISTS labels (
     taxonomy         VARCHAR NOT NULL,
     output_truncated BOOLEAN NOT NULL,
     input_tokens     INTEGER,
+    chunks           INTEGER,
     labeled_at       TIMESTAMP NOT NULL DEFAULT current_timestamp,
     PRIMARY KEY (span_id, label, model)
 )
 """
-# Stores created before input_tokens existed gain the column, empty for old rows.
-MIGRATIONS = ["ALTER TABLE labels ADD COLUMN IF NOT EXISTS input_tokens INTEGER"]
+# Stores created before a column existed gain it, empty for old rows.
+MIGRATIONS = [
+    "ALTER TABLE labels ADD COLUMN IF NOT EXISTS input_tokens INTEGER",
+    "ALTER TABLE labels ADD COLUMN IF NOT EXISTS chunks INTEGER",
+]
 
 
 class LabelStore:
@@ -53,14 +57,15 @@ class LabelStore:
                 x.taxonomy,
                 x.output_truncated,
                 x.input_tokens,
+                x.chunks,
             )
             for x in labels
         ]
         if rows:
             self._conn.executemany(
                 "INSERT OR REPLACE INTO labels (span_id, session_id, label, answer, p,"
-                " basis, model, taxonomy, output_truncated, input_tokens)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " basis, model, taxonomy, output_truncated, input_tokens, chunks)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
             )
         return len(rows)
@@ -74,7 +79,8 @@ class LabelStore:
     def rows(self) -> list[tuple]:
         return self._conn.execute(
             "SELECT span_id, session_id, label, answer, p, basis, model, taxonomy,"
-            " output_truncated, input_tokens FROM labels ORDER BY span_id, label"
+            " output_truncated, input_tokens, chunks FROM labels"
+            " ORDER BY span_id, label"
         ).fetchall()
 
     def close(self) -> None:
