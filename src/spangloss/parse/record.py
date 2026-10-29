@@ -11,6 +11,7 @@ ArgsSource = Literal["log", "span", "merged"]
 class ParsedToolCall:
     trace_id: str
     span_id: str
+    parent_tool_span_id: str | None  # enclosing tool call, e.g. a subagent's Agent
     session_id: str | None
     start_time: str  # ISO 8601, UTC
     end_time: str

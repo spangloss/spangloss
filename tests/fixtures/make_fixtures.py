@@ -205,7 +205,18 @@ tool_spans = [
         {"subagent_type": "fake-subagent"},
         None,
     ),
+    (
+        "a00000000000000b",
+        "Read",
+        "toolu_fake_nested_read",
+        {"file_path": "/tmp/example/notes.txt", "agent_id": "fake-agent-1"},
+        {"file_path": "/tmp/example/notes.txt", "content": "line one\n"},
+    ),
 ]
+
+# A call made inside the Agent call: its parent is the Agent's execution span
+# (e00000000000000a), as in captured subagent calls.
+NESTED_UNDER = {"a00000000000000b": "e00000000000000a"}
 
 line1 = [
     span(ROOT, "claude_code.interaction", None, 0, {"session.id": SESSION, **IDENTITY})
@@ -213,11 +224,12 @@ line1 = [
 line2 = []
 for i, (sid, tool, tuid, extra, event) in enumerate(tool_spans, start=1):
     start = i * 100
-    line1.append(
+    # The nested call arrives in a later batch than the Agent's tool span.
+    (line2 if sid in NESTED_UNDER else line1).append(
         span(
             sid,
             "claude_code.tool",
-            ROOT,
+            NESTED_UNDER.get(sid, ROOT),
             start,
             envelope(tool, tuid) | extra,
             [("tool.output", event)] if event is not None else [],

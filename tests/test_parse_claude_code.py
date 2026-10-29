@@ -32,6 +32,7 @@ def test_one_record_per_tool_span_in_start_order(
         "Edit",
         "Bash",
         "Agent",
+        "Read",
     ]
 
 
@@ -172,6 +173,23 @@ def test_children_in_a_later_batch_are_joined(calls: dict[str, ParsedToolCall]) 
     )
 
 
+def test_nested_call_points_to_the_delegating_tool_call(
+    calls: dict[str, ParsedToolCall],
+) -> None:
+    # Parent chain: nested Read -> Agent's execution span -> Agent's tool span,
+    # across two export batches.
+    nested = calls["a00000000000000b"]
+    assert nested.parent_tool_span_id == "a00000000000000a"
+    assert nested.args == {
+        "file_path": "/tmp/example/notes.txt"
+    }  # agent_id is not an arg
+
+
+def test_top_level_calls_have_no_parent_tool(calls: dict[str, ParsedToolCall]) -> None:
+    top_level = [c for c in calls.values() if c.span_id != "a00000000000000b"]
+    assert all(c.parent_tool_span_id is None for c in top_level)
+
+
 def test_children_in_the_same_batch_are_joined(
     calls: dict[str, ParsedToolCall],
 ) -> None:
@@ -229,6 +247,6 @@ def test_cli_writes_one_json_record_per_line(tmp_path: Path) -> None:
     assert main(["parse", str(traces), "-o", str(output)]) == 0
 
     records = [json.loads(line) for line in output.read_text().splitlines()]
-    assert len(records) == 10
+    assert len(records) == 11
     assert records[0]["args_source"] == "log"
     assert set(records[0]) == set(ParsedToolCall.__dataclass_fields__)

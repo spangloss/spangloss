@@ -101,11 +101,31 @@ def parse(spans: dict[str, Span], records: list[LogRecord]) -> list[ParsedToolCa
         (s for s in spans.values() if s.name == TOOL_SPAN),
         key=lambda s: (s.start_time_unix_nano, s.span_id),
     )
-    return [_tool_call(s, children[s.span_id], tool_inputs) for s in tool_spans]
+    return [
+        _tool_call(s, children[s.span_id], tool_inputs, _parent_tool(s, spans))
+        for s in tool_spans
+    ]
+
+
+def _parent_tool(span: Span, spans: dict[str, Span]) -> str | None:
+    """Nearest claude_code.tool ancestor. A subagent's calls sit under the
+    delegating call's execution span, so walk up rather than check one level."""
+    seen = {span.span_id}
+    parent_id = span.parent_span_id
+    while parent_id and parent_id not in seen and parent_id in spans:
+        parent = spans[parent_id]
+        if parent.name == TOOL_SPAN:
+            return parent.span_id
+        seen.add(parent_id)
+        parent_id = parent.parent_span_id
+    return None
 
 
 def _tool_call(
-    span: Span, children: list[Span], tool_inputs: dict[str, dict[str, Any]]
+    span: Span,
+    children: list[Span],
+    tool_inputs: dict[str, dict[str, Any]],
+    parent_tool_span_id: str | None,
 ) -> ParsedToolCall:
     a = span.attributes
     tool_name = str(a.get("tool_name", ""))
@@ -127,6 +147,7 @@ def _tool_call(
     return ParsedToolCall(
         trace_id=span.trace_id,
         span_id=span.span_id,
+        parent_tool_span_id=parent_tool_span_id,
         session_id=a.get("session.id"),
         start_time=_iso(span.start_time_unix_nano),
         end_time=_iso(span.end_time_unix_nano),
