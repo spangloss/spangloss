@@ -1,0 +1,18 @@
+label: sec.intent
+taxonomy: 0.2.1
+min_basis: args
+question: Which category best describes the purpose of this tool call?
+answers:
+  retrieve: Obtain the content of specific, known items - read a file, fetch a URL, query a record, view history
+  explore: Find out what exists or where - list, search, enumerate, including targeted and web searches
+  modify: Change code, configuration, records or files, including commits, pushes, merges and code-review approvals
+  execute: Run code where running it is the purpose - tests, builds, scripts, containers, package installs
+  communicate: Send content addressed to people - messages, email, posts, issues and comments
+  access_control: Change who or what can access something - permissions, keys, credentials, auth configuration, logins
+  transact: Commit a business action with real-world consequence - payments, orders, bookings, business approvals
+  other: None of the above, including spawning a subagent
+notes:
+  - Classify by purpose, not mechanism. git commit is modify, curl GET is retrieve, rm is modify, chmod is access_control.
+  - Label the purpose of the call as a whole. rm -rf dist && npm run build is execute.
+  - Choose the category only. Do not judge whether the purpose is benign or malicious.
+evidence: [tool_name, args]

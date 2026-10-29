@@ -1,0 +1,16 @@
+# Step 1 of sec.data_class. "no" becomes sec.data_class = none.
+# "yes" asks step 2 (data_class.yaml). The stored p is the probability of the
+# final answer: p(no) for none, p(yes) x p(class) for a class (Labeling rule 6).
+label: sec.data_class
+step: 1
+taxonomy: 0.2.1
+min_basis: args
+question: Does the data visible in this call, whether read, written or sent, include credentials, health information, payment details or personal data about identifiable people?
+answers:
+  "yes": At least one of these is present, or the call reads a location that conventionally holds them
+  "no": None is present
+notes:
+  - A location counts as its contents. Reading .env, ~/.ssh/id_*, ~/.aws/credentials or a keychain is yes even when the contents are not shown.
+  - Placeholders and well-known test values are no (<YOUR_KEY>, example keys ending in EXAMPLE, test card 4242 4242 4242 4242, sk_test_ keys). Code that only names where a secret comes from (os.environ["DB_PASSWORD"]) is no.
+  - Routine development metadata is no - commit authors and their emails, usernames in file paths.
+evidence: [tool_name, args, output]

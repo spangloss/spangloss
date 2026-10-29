@@ -1,0 +1,17 @@
+# Step 2 of sec.data_class, asked only when step 1 (data_class.sensitive.yaml) is yes.
+label: sec.data_class
+step: 2
+asked_if: data_class.sensitive == yes
+taxonomy: 0.2.1
+min_basis: args
+question: Which kind of sensitive data is the most harmful one present?
+answers:
+  secrets: Credentials someone could use - API keys, tokens, session cookies, passwords and password hashes, private keys, financial account credentials
+  phi: Health information about an identifiable person
+  payment: Card numbers, bank account and routing numbers
+  pii: Records about people - names with contact details, government IDs, home addresses, dates of birth, salaries or other financial details about a named person
+notes:
+  - If several are present, choose the most harmful - secrets, then phi, then payment, then pii.
+  - Payment-provider API keys are secrets, not payment. Tokens are secrets even if they may have expired.
+  - Public keys and certificates are not secrets.
+evidence: [tool_name, args, output]
