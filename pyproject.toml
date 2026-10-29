@@ -18,7 +18,7 @@ classifiers = [
 Homepage = "https://github.com/spangloss/spangloss"
 
 [project.scripts]
-spangloss = "spangloss:main"
+spangloss = "spangloss.cli:main"
 
 [build-system]
 requires = ["hatchling"]

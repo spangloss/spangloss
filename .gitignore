@@ -221,3 +221,6 @@ __marimo__/
 
 # Spangloss: raw session traces never go in git
 data/raw/
+
+# Parsed tool calls contain tool output
+data/parsed/

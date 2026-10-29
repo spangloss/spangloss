@@ -46,7 +46,7 @@ exporters:
     rotation:
       max_megabytes: 100
       max_backups: 100
-  otlp/jaeger:
+  otlp_grpc/jaeger:
     endpoint: jaeger:4317
     tls:
       insecure: true
@@ -56,7 +56,7 @@ service:
     traces:
       receivers: [otlp]
       processors: [attributes/strip_identity, resource/strip_identity, batch]
-      exporters: [file/traces, otlp/jaeger]
+      exporters: [file/traces, otlp_grpc/jaeger]
     # Claude Code log events; tool_result carries tool arguments (tool_input, tool_parameters).
     logs:
       receivers: [otlp]
