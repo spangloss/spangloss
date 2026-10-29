@@ -113,8 +113,17 @@ def request(spans):
     }
 
 
+def truncate(value):
+    """Truncate the way Claude Code's tool_input does: 128 chars, then the full length."""
+    return value if len(value) <= 128 else f"{value[:128]}…[{len(value)} chars]"
+
+
 ROOT = "f000000000000001"
-WRITE_FULL = "alpha\nbravo\ncharlie\ndelta\necho\nfoxtrot\ngolf\nhotel\n"
+WRITE_FULL = "alpha\nbravo\ncharlie\ndelta\necho\nfoxtrot\ngolf\nhotel\n" * 4
+LONG_COMMAND = "find /tmp/example -type f -name '*.txt' " + " ".join(
+    f"-not -path '/tmp/example/skip-{n}/*'" for n in range(5)
+)
+LONG_PROMPT = "Summarize the made-up example notes. " * 6
 tool_spans = [
     # (span_id, tool, tool_use_id, extra span attrs, tool.output event attrs or None)
     (
@@ -154,7 +163,7 @@ tool_spans = [
         "a000000000000006",
         "Write",
         "toolu_fake_write",
-        {},
+        {"file_path": "/tmp/example/out.txt"},
         {"file_path": "/tmp/example/out.txt", "content": WRITE_FULL},
     ),
     (
@@ -177,6 +186,24 @@ tool_spans = [
             "file_path": "/tmp/example/notes.txt",
             "diff": "@@ -1 +1 @@\n-line one\n+line 1\n",
         },
+    ),
+    (
+        "a000000000000009",
+        "Bash",
+        "toolu_fake_bash_truncated",
+        {
+            "full_command": LONG_COMMAND,
+            "bash_argv0": "find",
+            "bash_command_class": "fake_class",
+        },
+        {"bash_command": LONG_COMMAND, "output": ""},
+    ),
+    (
+        "a00000000000000a",
+        "Agent",
+        "toolu_fake_agent",
+        {"subagent_type": "fake-subagent"},
+        None,
     ),
 ]
 
@@ -254,9 +281,32 @@ logs = [
             "tool_use_id": "toolu_fake_write",
             "success": "true",
             "tool_input": json.dumps(
+                {"file_path": "/tmp/example/out.txt", "content": truncate(WRITE_FULL)}
+            ),
+        },
+    ),
+    log(
+        "tool_result",
+        {
+            "tool_name": "Bash",
+            "tool_use_id": "toolu_fake_bash_truncated",
+            "success": "true",
+            "tool_input": json.dumps(
+                {"command": truncate(LONG_COMMAND), "description": "Find text files"}
+            ),
+        },
+    ),
+    log(
+        "tool_result",
+        {
+            "tool_name": "Agent",
+            "tool_use_id": "toolu_fake_agent",
+            "success": "true",
+            "tool_input": json.dumps(
                 {
-                    "file_path": "/tmp/example/out.txt",
-                    "content": "alpha\nbravo…[38 chars]",
+                    "description": "Summarize notes",
+                    "prompt": truncate(LONG_PROMPT),
+                    "subagent_type": "fake-subagent",
                 }
             ),
         },

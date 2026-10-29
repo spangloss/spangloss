@@ -2,10 +2,12 @@
 
 Field names here come from captured Claude Code telemetry, not from guesses.
 Tool arguments arrive in the tool_result log event's tool_input; the span itself
-carries only a few input-derived attributes, used as a fallback.
+carries only a few input-derived attributes. tool_input truncates long strings, so
+a complete span copy of a field replaces its truncated log copy.
 """
 
 import json
+import re
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -47,9 +49,13 @@ ENVELOPE_KEYS = frozenset(
     | IDENTITY_KEYS
 )
 
-# Span fallback for tools whose span attributes need mapping: span key -> args key.
-# Bash's full_command equals tool_input.command; bash_argv0 and bash_command_class are
-# derived from it and dropped.
+# tool_input keeps the first 128 characters of a long string, then "…[N chars]",
+# where N is the original length.
+TRUNCATED = re.compile(r"…\[(\d+) chars\]\Z")
+
+# Span attributes that copy an argument, for tools that need mapping: span key -> args key.
+# Bash's full_command equals tool_input.command, untruncated; bash_argv0 and
+# bash_command_class are derived from it and dropped.
 SPAN_ARGS: dict[str, dict[str, str]] = {
     "Bash": {"full_command": "command"},
     "Read": {"file_path": "file_path"},
@@ -69,7 +75,7 @@ OUTPUT_KEY: dict[str, str] = {
 # Edit's event holds a diff of the change; the tool's actual result is not captured.
 OUTPUT_EVENT_ARGS: dict[str, dict[str, str]] = {
     "Write": {"content": "content", "file_path": "file_path"},
-    "Edit": {"file_path": "file_path"},
+    "Edit": {"diff": "diff", "file_path": "file_path"},
 }
 
 
@@ -107,26 +113,14 @@ def _tool_call(
         (e.attributes for e in span.events if e.name == OUTPUT_EVENT), None
     )
 
-    args: dict[str, Any]
-    args_source: ArgsSource | None
+    span_args = _span_args(tool_name, a, output_event)
     logged = tool_inputs.get(a.get("tool_use_id", ""))
-    if logged:
-        args, args_source = dict(logged), "log"
-    else:
-        args = _span_args(tool_name, a)
-        args_source = "span" if args else None
+    args, args_source = _merge_args(tool_name, logged, span_args)
+    args = {k: v for k, v in args.items() if k not in IDENTITY_KEYS}
 
     output: str | None = None
-    if output_event is not None:
-        if tool_name in OUTPUT_EVENT_ARGS:
-            for event_key, args_key in OUTPUT_EVENT_ARGS[tool_name].items():
-                if event_key in output_event:
-                    args[args_key] = output_event[event_key]
-            args_source = args_source or ("span" if args else None)
-        else:
-            output = _output(tool_name, output_event)
-
-    args = {k: v for k, v in args.items() if k not in IDENTITY_KEYS}
+    if output_event is not None and tool_name not in OUTPUT_EVENT_ARGS:
+        output = _output(tool_name, output_event)
     execution = _child(children, EXECUTION_SPAN)
     permission = _child(children, PERMISSION_SPAN)
 
@@ -139,6 +133,7 @@ def _tool_call(
         tool_name=tool_name,
         args=args,
         args_source=args_source,
+        args_truncated=_is_truncated(args),
         output=output,
         has_output=output is not None,
         basis=basis_for(args, output),
@@ -150,14 +145,69 @@ def _tool_call(
     )
 
 
-def _span_args(tool_name: str, attributes: dict[str, Any]) -> dict[str, Any]:
+def _span_args(
+    tool_name: str, attributes: dict[str, Any], output_event: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Arguments visible on the span: mapped or generic attributes, plus any
+    input-describing tool.output fields."""
     if tool_name in SPAN_ARGS:
-        return {
+        args = {
             args_key: attributes[span_key]
             for span_key, args_key in SPAN_ARGS[tool_name].items()
             if span_key in attributes
         }
-    return {k: v for k, v in attributes.items() if k not in ENVELOPE_KEYS}
+    else:
+        args = {k: v for k, v in attributes.items() if k not in ENVELOPE_KEYS}
+    if output_event is not None:
+        for event_key, args_key in OUTPUT_EVENT_ARGS.get(tool_name, {}).items():
+            if event_key in output_event:
+                args[args_key] = output_event[event_key]
+    return args
+
+
+def _merge_args(
+    tool_name: str, logged: dict[str, Any] | None, span_args: dict[str, Any]
+) -> tuple[dict[str, Any], ArgsSource | None]:
+    """Log arguments first. A span value replaces a log value only when the log value
+    is a truncated copy of it, and adds a missing field only when the field is mapped
+    for this tool. Unmapped span attributes are used only when there is no log."""
+    if not logged:
+        return span_args, "span" if span_args else None
+
+    args = dict(logged)
+    addable = set(SPAN_ARGS.get(tool_name, {}).values()) | set(
+        OUTPUT_EVENT_ARGS.get(tool_name, {}).values()
+    )
+    merged = False
+    for key, value in span_args.items():
+        if key in args:
+            if _completes(args[key], value):
+                args[key], merged = value, True
+        elif key in addable:
+            args[key], merged = value, True
+    return args, "merged" if merged else "log"
+
+
+def _completes(logged: Any, value: Any) -> bool:
+    """True if logged is a tool_input truncation of value."""
+    if not (isinstance(logged, str) and isinstance(value, str)):
+        return False
+    m = TRUNCATED.search(logged)
+    return (
+        m is not None
+        and int(m.group(1)) == len(value)
+        and value.startswith(logged[: m.start()])
+    )
+
+
+def _is_truncated(value: Any) -> bool:
+    if isinstance(value, str):
+        return TRUNCATED.search(value) is not None
+    if isinstance(value, dict):
+        return any(_is_truncated(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_is_truncated(v) for v in value)
+    return False
 
 
 def _output(tool_name: str, event: dict[str, Any]) -> str | None:

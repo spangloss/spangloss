@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 Basis = Literal["name_only", "args", "content"]
-ArgsSource = Literal["log", "span"]
+ArgsSource = Literal["log", "span", "merged"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +17,7 @@ class ParsedToolCall:
     tool_name: str
     args: dict[str, Any]
     args_source: ArgsSource | None  # where args came from; None when there are none
+    args_truncated: bool  # some argument is truncated in every source
     output: str | None
     has_output: bool
     basis: Basis  # TAXONOMY.md: content needs args and output

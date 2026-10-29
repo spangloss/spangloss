@@ -5,6 +5,7 @@ import pytest
 
 from spangloss.cli import main
 from spangloss.parse import ParsedToolCall, parse_claude_code
+from spangloss.parse.claude_code import _completes
 from spangloss.parse.otlp import IDENTITY_KEYS, decode_value
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -29,6 +30,8 @@ def test_one_record_per_tool_span_in_start_order(
         "Write",
         "Bash",
         "Edit",
+        "Bash",
+        "Agent",
     ]
 
 
@@ -38,7 +41,8 @@ def test_bash_args_come_from_tool_result_log(calls: dict[str, ParsedToolCall]) -
         "command": "ls -la /tmp/example",
         "description": "List example files",
     }
-    assert bash.args_source == "log"
+    assert bash.args_source == "log"  # span copy is equal, so it contributes nothing
+    assert not bash.args_truncated
     assert bash.output == "total 0"
     assert bash.has_output
     assert bash.basis == "content"
@@ -98,20 +102,61 @@ def test_write_event_restores_truncated_content_and_is_not_output(
     write = calls["a000000000000006"]
     assert write.args == {
         "file_path": "/tmp/example/out.txt",
-        "content": "alpha\nbravo\ncharlie\ndelta\necho\nfoxtrot\ngolf\nhotel\n",
+        "content": "alpha\nbravo\ncharlie\ndelta\necho\nfoxtrot\ngolf\nhotel\n" * 4,
     }
-    assert write.args_source == "log"
+    assert write.args_source == "merged"
+    assert not write.args_truncated
     assert write.output is None
     assert write.basis == "args"
 
 
-def test_edit_diff_is_not_output(calls: dict[str, ParsedToolCall]) -> None:
+def test_edit_diff_is_kept_in_args_not_output(
+    calls: dict[str, ParsedToolCall],
+) -> None:
     edit = calls["a000000000000008"]
-    assert edit.args == {"file_path": "/tmp/example/notes.txt"}
+    assert edit.args == {
+        "file_path": "/tmp/example/notes.txt",
+        "diff": "@@ -1 +1 @@\n-line one\n+line 1\n",
+    }
     assert edit.args_source == "span"
     assert edit.output is None
     assert not edit.has_output
     assert edit.basis == "args"
+
+
+def test_truncated_log_command_is_replaced_by_complete_span_copy(
+    calls: dict[str, ParsedToolCall],
+) -> None:
+    bash = calls["a000000000000009"]
+    assert bash.args["command"].startswith("find /tmp/example -type f")
+    assert bash.args["command"].endswith("-not -path '/tmp/example/skip-4/*'")
+    assert len(bash.args["command"]) == 214
+    assert bash.args["description"] == "Find text files"  # only in the log
+    assert bash.args_source == "merged"
+    assert not bash.args_truncated
+
+
+def test_truncated_with_no_complete_copy_is_flagged(
+    calls: dict[str, ParsedToolCall],
+) -> None:
+    agent = calls["a00000000000000a"]
+    assert agent.args["prompt"].endswith("…[222 chars]")
+    assert agent.args["subagent_type"] == "fake-subagent"
+    assert agent.args_source == "log"  # span copy of subagent_type is equal
+    assert agent.args_truncated
+
+
+@pytest.mark.parametrize(
+    ("logged", "value", "expected"),
+    [
+        ("abc…[6 chars]", "abcdef", True),
+        ("abc…[7 chars]", "abcdef", False),  # length must match
+        ("abx…[6 chars]", "abcdef", False),  # prefix must match
+        ("abcdef", "abcdef", False),  # not truncated
+    ],
+)
+def test_completes(logged: str, value: str, expected: bool) -> None:
+    assert _completes(logged, value) is expected
 
 
 def test_children_in_a_later_batch_are_joined(calls: dict[str, ParsedToolCall]) -> None:
@@ -184,6 +229,6 @@ def test_cli_writes_one_json_record_per_line(tmp_path: Path) -> None:
     assert main(["parse", str(traces), "-o", str(output)]) == 0
 
     records = [json.loads(line) for line in output.read_text().splitlines()]
-    assert len(records) == 8
+    assert len(records) == 10
     assert records[0]["args_source"] == "log"
     assert set(records[0]) == set(ParsedToolCall.__dataclass_fields__)
