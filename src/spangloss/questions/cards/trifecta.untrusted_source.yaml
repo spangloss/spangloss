@@ -7,4 +7,5 @@ answers:
   "no": The user's project files, or local tool output about local state (git status, test results)
 notes:
   - Judge by the type of source, not by who wrote each line. Project files count as the user's own even if outside contributors wrote parts of them.
-evidence: [tool_name, args, output]
+# Output is excluded so untrusted content in it cannot steer this structural label.
+evidence: [tool_name, args]

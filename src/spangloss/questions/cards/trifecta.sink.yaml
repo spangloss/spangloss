@@ -7,4 +7,5 @@ answers:
   "no": localhost, local files, or scripts and tests whose arguments show no network destination
 notes:
   - It needs a visible network destination or a tool whose purpose is sending. A script that might make network calls is no unless its arguments show a destination.
-evidence: [tool_name, args, output]
+# Output is excluded so untrusted content in it cannot steer this structural label.
+evidence: [tool_name, args]

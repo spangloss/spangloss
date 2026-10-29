@@ -12,4 +12,5 @@ notes:
   - Judge a shell command by the operation it names - rm is delete, cat is read, mv is write. A script name that only suggests an effect (make clean) is execute.
   - Removing content inside a file or record is write, not delete.
   - When one call does several things, answer for the most severe part - delete, then execute, then write, then read, then none.
-evidence: [tool_name, args, output]
+# Output is excluded so untrusted content in it cannot steer this structural label.
+evidence: [tool_name, args]

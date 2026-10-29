@@ -7,4 +7,5 @@ answers:
   "no": It accesses only public data - public web pages, files inside installed dependencies, system and standard-library files - or no data at all
 notes:
   - The user's own project files are non-public, even in an open source repository.
-evidence: [tool_name, args, output]
+# Output is excluded so untrusted content in it cannot steer this structural label.
+evidence: [tool_name, args]

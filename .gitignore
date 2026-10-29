@@ -224,3 +224,7 @@ data/raw/
 
 # Parsed tool calls contain tool output
 data/parsed/
+
+# Label store (contains labels derived from raw sessions)
+data/labels.duckdb
+data/labels.duckdb.wal

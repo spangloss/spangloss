@@ -10,4 +10,5 @@ notes:
   - Judge the action type, not the environment. Do not assume version control, trash or backups that the call does not show.
   - Running code whose effects are not visible is recoverable, unless a visible part of the call is irreversible.
   - When one call does several things, answer for the most severe part.
-evidence: [tool_name, args, output]
+# Output is excluded so untrusted content in it cannot steer this structural label.
+evidence: [tool_name, args]

@@ -13,6 +13,12 @@ classifiers = [
   "Topic :: Security",
   "Topic :: System :: Monitoring",
 ]
+dependencies = [
+    "detect-secrets>=1.5.0",
+    "duckdb>=2.0.0",
+    "pyyaml>=6.0.3",
+    "typesafe-sdk>=0.7.5",
+]
 
 [project.urls]
 Homepage = "https://github.com/spangloss/spangloss"
