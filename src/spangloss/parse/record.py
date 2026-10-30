@@ -25,6 +25,10 @@ class ParsedToolCall:
     success: bool | None
     permission_decision: str | None
     permission_source: str | None
+    # MCP servers named in the tools a tool-loading call loaded; [] when it loaded
+    # only built-in tools; None when not a tool-loading call or the names are not
+    # visible. Defaults to None so older parsed files still load.
+    loaded_mcp_servers: list[str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

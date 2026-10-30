@@ -9,6 +9,7 @@ from pathlib import Path
 
 from spangloss import __version__
 from spangloss.backends import Backend
+from spangloss.config import DEFAULT_CONFIG, ConfigError, load_config
 from spangloss.eval import (
     DEFAULT_GOLD,
     DEFAULT_SHEET,
@@ -66,6 +67,12 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_MAX_EVIDENCE_CHARS,
         help=f"default: {DEFAULT_MAX_EVIDENCE_CHARS}",
     )
+    label.add_argument(
+        "--config",
+        type=Path,
+        help=f"first-party MCP servers and other settings (default: {DEFAULT_CONFIG},"
+        " if present)",
+    )
 
     export = commands.add_parser(
         "export-sheet", help="Write a CSV sheet of tool calls to label by hand."
@@ -87,12 +94,22 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     if args.command == "label":
+        try:
+            config = (
+                load_config(args.config, required=True)
+                if args.config
+                else load_config()
+            )
+        except ConfigError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
         return _label(
             make_backend(args.backend),
             args.input,
             args.db,
             args.limit,
             args.max_evidence_chars,
+            config.first_party_mcp_servers,
         )
     if args.command == "export-sheet":
         return _export_sheet(args.input, args.out, args.gold, args.limit, args.force)
@@ -141,7 +158,12 @@ def make_backend(name: str) -> Backend:
 
 
 def _label(
-    backend: Backend, calls_path: Path, db: Path, limit: int, max_chars: int
+    backend: Backend,
+    calls_path: Path,
+    db: Path,
+    limit: int,
+    max_chars: int,
+    first_party: frozenset[str] = frozenset(),
 ) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
     cards = load_cards()
@@ -153,7 +175,7 @@ def _label(
         written = 0
         skipped = 0
         for call in todo:
-            outcome = label_call(call, cards, backend, max_chars)
+            outcome = label_call(call, cards, backend, max_chars, first_party)
             if outcome.skipped:
                 skipped += 1
                 log.info(

@@ -79,6 +79,15 @@ OUTPUT_EVENT_ARGS: dict[str, dict[str, str]] = {
 }
 
 
+# Tools that load other tools' definitions into the agent's context. ToolSearch's
+# query names the tools to load as "select:A,B,C"; a keyword query names none, and
+# the output that lists what it found is not captured. Server names come only from
+# the select list, never from the descriptions, which a third party writes.
+TOOL_LOADING = frozenset({"ToolSearch"})
+SELECT_PREFIX = "select:"
+MCP_TOOL = re.compile(r"\Amcp__(.+?)__.+\Z")
+
+
 def parse_files(traces: Path, logs: Path | None = None) -> list[ParsedToolCall]:
     spans = read_spans(traces)
     records = read_log_records(logs) if logs is not None else []
@@ -163,7 +172,29 @@ def _tool_call(
         if permission
         else None,
         permission_source=permission.attributes.get("source") if permission else None,
+        loaded_mcp_servers=loaded_mcp_servers(tool_name, args),
     )
+
+
+def loaded_mcp_servers(tool_name: str, args: dict[str, Any]) -> list[str] | None:
+    """Servers named in a tool-loading call's select list (mcp__<server>__<tool>).
+
+    [] when every selected tool is built-in. None when this is not a tool-loading
+    call, or the list is not visible: a keyword query, or a truncated query whose
+    last names are cut off.
+    """
+    if tool_name not in TOOL_LOADING:
+        return None
+    query = args.get("query")
+    if not isinstance(query, str) or not query.startswith(SELECT_PREFIX):
+        return None
+    if _is_truncated(query):
+        return None
+    names = [n.strip() for n in query.removeprefix(SELECT_PREFIX).split(",")]
+    names = [n for n in names if n]
+    if not names:
+        return None
+    return sorted({m.group(1) for n in names if (m := MCP_TOOL.match(n))})
 
 
 def _span_args(

@@ -5,7 +5,7 @@ import pytest
 
 from spangloss.cli import main
 from spangloss.parse import ParsedToolCall, parse_claude_code
-from spangloss.parse.claude_code import _completes
+from spangloss.parse.claude_code import _completes, loaded_mcp_servers
 from spangloss.parse.otlp import IDENTITY_KEYS, decode_value
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -33,6 +33,8 @@ def test_one_record_per_tool_span_in_start_order(
         "Bash",
         "Agent",
         "Read",
+        "ToolSearch",
+        "ToolSearch",
     ]
 
 
@@ -247,6 +249,49 @@ def test_cli_writes_one_json_record_per_line(tmp_path: Path) -> None:
     assert main(["parse", str(traces), "-o", str(output)]) == 0
 
     records = [json.loads(line) for line in output.read_text().splitlines()]
-    assert len(records) == 11
+    assert len(records) == 13
     assert records[0]["args_source"] == "log"
     assert set(records[0]) == set(ParsedToolCall.__dataclass_fields__)
+
+
+# --- tool loading (TAXONOMY.md Principle 5) ------------------------------------
+
+
+def test_select_query_records_the_mcp_servers_it_loads(
+    calls: dict[str, ParsedToolCall],
+) -> None:
+    search = calls["a00000000000000c"]
+    assert search.args["query"].startswith("select:")
+    assert search.loaded_mcp_servers == ["example-notes", "fake_vendor_tools"]
+
+
+def test_keyword_query_and_other_tools_have_no_server_list(
+    calls: dict[str, ParsedToolCall],
+) -> None:
+    assert calls["a00000000000000d"].loaded_mcp_servers is None  # keyword query
+    assert calls["a000000000000004"].loaded_mcp_servers is None  # no args at all
+    assert calls["a000000000000001"].loaded_mcp_servers is None  # not tool loading
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "expected"),
+    [
+        ("ToolSearch", {"query": "select:Read,Edit"}, []),  # built-in only
+        ("ToolSearch", {"query": "select:mcp__a_b__c_d, mcp__x__y"}, ["a_b", "x"]),
+        ("ToolSearch", {"query": "select:"}, None),
+        ("ToolSearch", {"query": "select:mcp__a__b,mcp__c…[400 chars]"}, None),
+        ("ToolSearch", {"query": "+slack send"}, None),
+        ("ToolSearch", {}, None),
+        ("Bash", {"query": "select:mcp__a__b"}, None),
+    ],
+)
+def test_loaded_mcp_servers(
+    tool: str, args: dict[str, object], expected: list[str] | None
+) -> None:
+    assert loaded_mcp_servers(tool, args) == expected
+
+
+def test_older_parsed_records_without_the_field_still_load() -> None:
+    record = parse_claude_code(TRACES, LOGS)[0].to_dict()
+    del record["loaded_mcp_servers"]
+    assert ParsedToolCall(**record).loaded_mcp_servers is None

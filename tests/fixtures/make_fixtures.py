@@ -212,6 +212,10 @@ tool_spans = [
         {"file_path": "/tmp/example/notes.txt", "agent_id": "fake-agent-1"},
         {"file_path": "/tmp/example/notes.txt", "content": "line one\n"},
     ),
+    # Tool loading: a select list naming two made-up MCP servers and a built-in tool,
+    # then a keyword query, which names no tools. Neither has a tool.output event.
+    ("a00000000000000c", "ToolSearch", "toolu_fake_toolsearch_select", {}, None),
+    ("a00000000000000d", "ToolSearch", "toolu_fake_toolsearch_keyword", {}, None),
 ]
 
 # A call made inside the Agent call: its parent is the Agent's execution span
@@ -321,6 +325,30 @@ logs = [
                     "subagent_type": "fake-subagent",
                 }
             ),
+        },
+    ),
+    log(
+        "tool_result",
+        {
+            "tool_name": "ToolSearch",
+            "tool_use_id": "toolu_fake_toolsearch_select",
+            "success": "true",
+            "tool_input": json.dumps(
+                {
+                    "query": "select:mcp__example-notes__search,"
+                    "mcp__fake_vendor_tools__lookup,mcp__example-notes__fetch,Read",
+                    "max_results": 5,
+                }
+            ),
+        },
+    ),
+    log(
+        "tool_result",
+        {
+            "tool_name": "ToolSearch",
+            "tool_use_id": "toolu_fake_toolsearch_keyword",
+            "success": "true",
+            "tool_input": json.dumps({"query": "example notes", "max_results": 5}),
         },
     ),
     log(

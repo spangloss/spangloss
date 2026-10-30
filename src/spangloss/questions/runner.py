@@ -11,6 +11,8 @@
 - Each label records its chunk count and the largest input token count among its
   requests, as the backend reports it.
 - Evidence goes only in the request's state, never in a question.
+- Labels the call's structure decides (questions/derived.py) are written with
+  p 1.0 and model "derived", and their cards are not asked.
 - A two-step label (data_class) asks step 2 only when step 1 is yes, and only for
   the chunks whose step 1 was yes. It stores p(no) for none, or p(yes) x p(class)
   for a class, taking the most severe class across chunks.
@@ -30,6 +32,7 @@ from spangloss.backends.base import (
 )
 from spangloss.parse.record import ParsedToolCall
 from spangloss.questions.cards import Card
+from spangloss.questions.derived import DERIVED_MODEL, derived_answers
 
 # About 8,192 tokens at a conservative 3 characters per token: Kev-4B's validated context.
 DEFAULT_MAX_EVIDENCE_CHARS = 24_000
@@ -88,12 +91,24 @@ def label_call(
     cards: list[Card],
     backend: Backend,
     max_evidence_chars: int = DEFAULT_MAX_EVIDENCE_CHARS,
+    first_party_mcp_servers: frozenset[str] = frozenset(),
 ) -> Outcome:
     if reason := backend.screen(call):
         return Outcome([], skipped=reason)
 
+    derived = [
+        _derived(call, card, answer)
+        for label, answer in derived_answers(call, first_party_mcp_servers).items()
+        for card in cards
+        if card.label == label
+    ]
+    decided = {x.label for x in derived}
     first_round = [
-        c for c in cards if c.applies_to(call.basis, call.has_output) and c.step != 2
+        c
+        for c in cards
+        if c.applies_to(call.basis, call.has_output)
+        and c.step != 2
+        and c.label not in decided
     ]
     try:
         results = _ask_grouped(call, first_round, backend, max_evidence_chars)
@@ -111,7 +126,7 @@ def label_call(
             )
     except RequestRejected as e:  # includes EvidenceTooLong
         return Outcome([], skipped=str(e))
-    return Outcome(labels)
+    return Outcome(derived + labels)
 
 
 def question_spec(card: Card) -> QuestionSpec:
@@ -310,6 +325,22 @@ def _make(
         output_truncated=any(r.output_truncated for r in requests),
         input_tokens=max(tokens) if tokens else None,
         chunks=chunks,
+    )
+
+
+def _derived(call: ParsedToolCall, card: Card, answer: str) -> Label:
+    return Label(
+        span_id=call.span_id,
+        session_id=call.session_id,
+        label=card.label,
+        answer=answer,
+        p=1.0,
+        basis=call.basis,
+        model=DERIVED_MODEL,
+        taxonomy=card.taxonomy,
+        output_truncated=False,
+        input_tokens=None,
+        chunks=0,  # nothing was asked
     )
 
 

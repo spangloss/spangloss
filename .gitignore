@@ -231,3 +231,6 @@ data/labels.duckdb.wal
 
 # Hand-labeling sheets and gold labels (contain session data for now)
 data/eval/
+
+# Local config can name the user's own MCP servers; spangloss.example.toml shows the format
+spangloss.toml

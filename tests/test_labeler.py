@@ -2,6 +2,7 @@ import json
 import logging
 import re
 from collections.abc import Callable
+from dataclasses import replace
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,7 @@ from spangloss.backends import (
 )
 from spangloss.backends.safety import screen_for_hosted
 from spangloss.backends.typesafe import TypeSafeBackend, kev_backend, read_env_value
+from spangloss.config import ConfigError, load_config
 from spangloss.parse import ParsedToolCall
 from spangloss.parse.record import basis_for
 from spangloss.questions import CardError, Outcome, label_call, load_cards
@@ -749,6 +751,100 @@ def test_cli_label_skips_done_calls_and_logs_refusals(
     assert cli.main([*args, "--limit", "5"]) == 0
     with LabelStore(db) as store:
         assert store.labeled_span_ids("fake/test") == {"s1", "s3"}
+
+
+# --- derived labels (TAXONOMY.md Principle 5) ---------------------------------
+
+
+def tool_search(servers: list[str] | None) -> ParsedToolCall:
+    return call(
+        tool_name="ToolSearch",
+        args={"query": "select:placeholder", "max_results": 5},
+        output=None,
+        loaded_mcp_servers=servers,
+    )
+
+
+@pytest.mark.parametrize(
+    ("servers", "first_party", "answer"),
+    [
+        (["fake_vendor_tools"], frozenset(), "yes"),
+        (["example-notes", "fake_vendor_tools"], frozenset({"example-notes"}), "yes"),
+        (["example-notes"], frozenset({"example-notes"}), "no"),
+        ([], frozenset(), "no"),  # built-in tools only
+    ],
+)
+def test_tool_loading_untrusted_source_is_derived_not_asked(
+    servers: list[str], first_party: frozenset[str], answer: str
+) -> None:
+    backend = FakeBackend()
+    outcome = label_call(
+        tool_search(servers), CARDS, backend, first_party_mcp_servers=first_party
+    )
+    untrusted = by_label(outcome)["sec.trifecta.untrusted_source"]
+    assert (untrusted.answer, untrusted.p, untrusted.model) == (answer, 1.0, "derived")
+    assert (untrusted.chunks, untrusted.input_tokens) == (0, None)
+    assert untrusted.taxonomy == "0.3.0"
+    asked = {qid for _, questions in backend.requests for qid in questions}
+    assert "trifecta.untrusted_source" not in asked
+    assert "trifecta.sink" in asked  # only the derived label is skipped
+    others = [x for x in outcome.labels if x.label != untrusted.label]
+    assert all(x.model == "fake/test" for x in others)
+
+
+def test_tool_loading_without_visible_names_asks_the_card() -> None:
+    backend = FakeBackend()
+    outcome = label_call(tool_search(None), CARDS, backend)
+    assert by_label(outcome)["sec.trifecta.untrusted_source"].model == "fake/test"
+
+
+def test_refused_call_writes_no_derived_label() -> None:
+    hosted = HostedFake()
+    refused = replace(tool_search(["x"]), args={"query": "select:mcp__x__read_.env"})
+    outcome = label_call(refused, CARDS, hosted)
+    assert outcome.skipped and outcome.labels == []
+
+
+def test_config_is_optional_and_validated(tmp_path: Path) -> None:
+    assert load_config(tmp_path / "absent.toml").first_party_mcp_servers == frozenset()
+    with pytest.raises(ConfigError, match="does not exist"):
+        load_config(tmp_path / "absent.toml", required=True)
+    good = tmp_path / "spangloss.toml"
+    good.write_text('[mcp]\nfirst_party_servers = ["example-notes"]\n')
+    assert load_config(good).first_party_mcp_servers == {"example-notes"}
+    bad = tmp_path / "bad.toml"
+    bad.write_text('[mcp]\nfirst_party_servers = "example-notes"\n')
+    with pytest.raises(ConfigError, match="list of strings"):
+        load_config(bad)
+    (tmp_path / "broken.toml").write_text("[mcp\n")
+    with pytest.raises(ConfigError, match="not valid TOML"):
+        load_config(tmp_path / "broken.toml")
+
+
+def test_example_config_parses() -> None:
+    example = Path(__file__).parent.parent / "spangloss.example.toml"
+    assert load_config(example).first_party_mcp_servers == {"my-notes-server"}
+
+
+def test_cli_label_reads_first_party_servers_from_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    parsed = tmp_path / "tool_calls.jsonl"
+    parsed.write_text(json.dumps(tool_search(["example-notes"]).to_dict()) + "\n")
+    config = tmp_path / "spangloss.toml"
+    config.write_text('[mcp]\nfirst_party_servers = ["example-notes"]\n')
+    db = tmp_path / "labels.duckdb"
+    monkeypatch.setattr(cli, "make_backend", lambda name: FakeBackend())
+    args = ["label", "--backend", "kev", "--limit", "1", "--input", str(parsed)]
+    assert cli.main([*args, "--db", str(db), "--config", str(config)]) == 0
+    with LabelStore(db) as store:
+        derived = [r for r in store.rows() if r[6] == "derived"]
+    assert [(r[2], r[3], r[4]) for r in derived] == [
+        ("sec.trifecta.untrusted_source", "no", 1.0)
+    ]
+    assert (
+        cli.main([*args, "--db", str(db), "--config", str(tmp_path / "no.toml")]) == 1
+    )
 
 
 def test_parsed_records_round_trip_into_parsed_tool_call() -> None:

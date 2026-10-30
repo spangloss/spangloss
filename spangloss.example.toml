@@ -1,0 +1,7 @@
+# Copy to spangloss.toml (git-ignored) and edit.
+
+[mcp]
+# MCP servers you wrote or control, by the <server> part of mcp__<server>__<tool>.
+# Their tool descriptions count as first-party, like built-in tools. Descriptions
+# from any other server are third-party: sec.trifecta.untrusted_source = yes.
+first_party_servers = ["my-notes-server"]
