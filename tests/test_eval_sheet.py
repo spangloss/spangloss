@@ -131,6 +131,7 @@ def test_import_writes_answers_and_implied_labels(tmp_path: Path) -> None:
             {"span_id": "s1", **FULL},
             {
                 "span_id": "s2",
+                **FULL,
                 "effect": "delete",
                 "data_class.sensitive": "yes",
                 "data_class": "secrets",
@@ -144,10 +145,8 @@ def test_import_writes_answers_and_implied_labels(tmp_path: Path) -> None:
     assert records["s1"]["answers"] == FULL
     assert records["s1"]["labels"]["sec.data_class"] == "none"
     assert records["s1"]["labels"]["sec.trifecta.sink"] == "no"
-    assert records["s2"]["labels"] == {
-        "sec.effect": "delete",
-        "sec.data_class": "secrets",
-    }
+    assert records["s2"]["labels"]["sec.effect"] == "delete"
+    assert records["s2"]["labels"]["sec.data_class"] == "secrets"
     assert records["s2"]["sheet"] == "sheet.csv"
     assert records["s2"]["taxonomy"] == "0.2.1"
 
@@ -155,17 +154,24 @@ def test_import_writes_answers_and_implied_labels(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("row", "problem"),
     [
-        ({"span_id": "s1", "effect": "Read"}, "'Read' is not one of read, write"),
-        ({"span_id": "s1", "trifecta.sink": "maybe"}, "column trifecta.sink"),
         (
-            {"span_id": "s1", "data_class": "pii"},
-            "only answered when data_class.sensitive is yes",
+            {"span_id": "s1", **FULL, "effect": "Read"},
+            "'Read' is not one of read, write",
+        ),
+        ({"span_id": "s1", **FULL, "trifecta.sink": "maybe"}, "column trifecta.sink"),
+        (
+            {"span_id": "s1", **FULL, "data_class": "pii"},
+            "s1), column data_class: only answered when data_class.sensitive is yes",
         ),
         (
-            {"span_id": "s1", "data_class.sensitive": "yes"},
-            "needed because data_class.sensitive is yes",
+            {"span_id": "s1", **FULL, "data_class.sensitive": "yes"},
+            "s1), column data_class: needed because data_class.sensitive is yes",
         ),
-        ({"span_id": "nope", "effect": "read"}, "span_id is not in the parsed calls"),
+        (
+            {"span_id": "s1", **FULL, "intent": ""},
+            "s1), column intent: needed because basis content meets min_basis args",
+        ),
+        ({"span_id": "nope", **FULL}, "span_id is not in the parsed calls"),
     ],
 )
 def test_import_rejects_bad_answers_and_writes_nothing(
@@ -185,14 +191,58 @@ def test_import_reports_every_problem(tmp_path: Path) -> None:
     write_sheet(
         sheet,
         [
-            {"span_id": "s1", "effect": "reed", "injection": "nah"},
-            {"span_id": "s1", "effect": "read"},
+            {"span_id": "s1", **FULL, "effect": "reed", "injection": "nah"},
+            {"span_id": "s1", **FULL},
         ],
     )
     with pytest.raises(SheetError) as e:
         import_sheet(sheet, CALLS, gold=tmp_path / "gold.jsonl")
     assert len(e.value.problems) == 3
     assert any("appears more than once" in p for p in e.value.problems)
+
+
+NAME_ONLY = call("n1", args={}, output=None)
+ARGS_ONLY = call("a1", output=None)
+
+
+def test_import_accepts_blanks_below_min_basis(tmp_path: Path) -> None:
+    sheet, gold = tmp_path / "sheet.csv", tmp_path / "gold.jsonl"
+    args_row = {k: v for k, v in FULL.items() if k != "injection"}
+    write_sheet(
+        sheet,
+        [{"span_id": "n1", "effect": "read"}, {"span_id": "a1", **args_row}],
+    )
+    result = import_sheet(sheet, [NAME_ONLY, ARGS_ONLY], gold=gold)
+    assert result.labeled == 2
+    records = {r["span_id"]: r for r in read_gold(gold)}
+    assert records["n1"]["labels"] == {"sec.effect": "read"}
+    assert "sec.injection" not in records["a1"]["labels"]
+
+
+def test_import_rejects_answers_below_min_basis(tmp_path: Path) -> None:
+    sheet = tmp_path / "sheet.csv"
+    write_sheet(sheet, [{"span_id": "n1", **FULL}, {"span_id": "a1", **FULL}])
+    with pytest.raises(SheetError) as e:
+        import_sheet(sheet, [NAME_ONLY, ARGS_ONLY], gold=tmp_path / "gold.jsonl")
+    problems = e.value.problems
+    # name_only: every card except effect needs args or content.
+    assert sum("(n1), column" in p for p in problems) == len(FULL) - 1
+    assert (
+        "row 2 (n1), column intent: must be blank because basis name_only is below"
+        " min_basis args"
+    ) in problems
+    # args: only injection needs content.
+    assert problems[-1] == (
+        "row 3 (a1), column injection: must be blank because basis args is below"
+        " min_basis content"
+    )
+
+
+def test_import_uses_the_parsed_basis_not_the_sheet_column(tmp_path: Path) -> None:
+    sheet = tmp_path / "sheet.csv"
+    write_sheet(sheet, [{"span_id": "n1", "basis": "content", **FULL}])
+    with pytest.raises(SheetError, match="basis name_only is below"):
+        import_sheet(sheet, [NAME_ONLY], gold=tmp_path / "gold.jsonl")
 
 
 def test_import_requires_the_answer_columns(tmp_path: Path) -> None:
@@ -207,18 +257,18 @@ def test_reimport_replaces_records_and_keeps_others(tmp_path: Path) -> None:
     first, second = tmp_path / "sheet_001.csv", tmp_path / "sheet_002.csv"
     write_sheet(
         first,
-        [{"span_id": "s1", "effect": "read"}, {"span_id": "s2", "effect": "read"}],
+        [{"span_id": "s1", **FULL}, {"span_id": "s2", **FULL}],
     )
     import_sheet(first, CALLS, gold=gold)
     write_sheet(
         second,
-        [{"span_id": "s2", "effect": "write"}, {"span_id": "s3", "effect": "read"}],
+        [{"span_id": "s2", **FULL, "effect": "write"}, {"span_id": "s3", **FULL}],
     )
     result = import_sheet(second, CALLS, gold=gold)
     records = {r["span_id"]: r for r in read_gold(gold)}
     assert result.gold_total == 3
-    assert records["s1"]["labels"] == {"sec.effect": "read"}
-    assert records["s2"]["labels"] == {"sec.effect": "write"}
+    assert records["s1"]["labels"]["sec.effect"] == "read"
+    assert records["s2"]["labels"]["sec.effect"] == "write"
     assert records["s2"]["sheet"] == "sheet_002.csv"
 
 
@@ -235,8 +285,8 @@ def test_cli_round_trip(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> N
     assert cli.main(["export-sheet", "--limit", "2", "--out", str(sheet), *common]) == 1
 
     rows = read_sheet(sheet)
-    rows[0]["effect"] = "read"
-    rows[1]["effect"] = "bogus"
+    rows[0] |= FULL
+    rows[1] |= FULL | {"effect": "bogus"}
     write_sheet(sheet, rows)
     assert cli.main(["import-sheet", str(sheet), *common]) == 1
     assert "'bogus' is not one of" in capsys.readouterr().err

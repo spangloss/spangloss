@@ -1,7 +1,8 @@
 """Hand-labeling sheets: export tool calls to CSV, import the filled answers as gold.
 
 The sheet carries context columns and one empty column per card. It never carries
-model answers. Import checks every answer against its card's answer set and writes
+model answers. Import checks every answer against its card's answer set, checks that
+a cell is blank exactly when its question is not asked for that call, and writes
 gold.jsonl, one record per labeled call.
 """
 
@@ -11,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from spangloss.parse.record import ParsedToolCall
+from spangloss.parse.record import Basis, ParsedToolCall
 from spangloss.questions.cards import Card, load_cards
 
 DEFAULT_SHEET = Path("data/eval/sheet_001.csv")
@@ -116,7 +117,8 @@ def import_sheet(
                     f"{where}, column {name}: {answer!r} is not one of"
                     f" {', '.join(allowed)}"
                 )
-        row_problems += _check_two_step(where, answers, cards)
+        if span_id in known:
+            row_problems += _check_blanks(where, answers, cards, known[span_id].basis)
         if row_problems:
             problems += row_problems
         else:
@@ -171,19 +173,38 @@ def _cell(text: str) -> str:
     return f"'{text}" if text.startswith(FORMULA_PREFIXES) else text
 
 
-def _check_two_step(
-    where: str, answers: dict[str, str], cards: list[Card]
+def _check_blanks(
+    where: str, answers: dict[str, str], cards: list[Card], basis: Basis
 ) -> list[str]:
+    """A cell is answered exactly when the labeler would ask its question.
+
+    That is when the call's basis reaches the card's min_basis and, for a step-2
+    card, its step-1 answer is yes. Basis comes from the parsed call, not the
+    sheet's basis column, which is only context.
+    """
     problems = []
-    for step2 in (c for c in cards if c.step == 2):
-        step1 = next(c for c in cards if c.label == step2.label and c.step == 1)
-        if step2.name in answers and answers.get(step1.name) != "yes":
+    for card in cards:
+        column = f"{where}, column {card.name}"
+        if not card.applies_to(basis):
+            if card.name in answers:
+                problems.append(
+                    f"{column}: must be blank because basis {basis} is below"
+                    f" min_basis {card.min_basis}"
+                )
+            continue
+        if card.step == 2:
+            step1 = next(c for c in cards if c.label == card.label and c.step == 1)
+            if answers.get(step1.name) != "yes":
+                if card.name in answers:
+                    problems.append(f"{column}: only answered when {step1.name} is yes")
+                continue
+            if card.name not in answers:
+                problems.append(f"{column}: needed because {step1.name} is yes")
+            continue
+        if card.name not in answers:
             problems.append(
-                f"{where}, column {step2.name}: only answered when {step1.name} is yes"
-            )
-        if answers.get(step1.name) == "yes" and step2.name not in answers:
-            problems.append(
-                f"{where}, column {step2.name}: needed because {step1.name} is yes"
+                f"{column}: needed because basis {basis} meets min_basis"
+                f" {card.min_basis}"
             )
     return problems
 
