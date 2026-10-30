@@ -20,6 +20,7 @@ from spangloss.eval import (
 from spangloss.parse import ParsedToolCall, parse_claude_code
 from spangloss.questions import label_call, load_cards
 from spangloss.questions.runner import DEFAULT_MAX_EVIDENCE_CHARS
+from spangloss.rules import RULES
 from spangloss.store import DEFAULT_DB, LabelStore
 
 DEFAULT_OUTPUT = Path("data/parsed/tool_calls.jsonl")
@@ -92,7 +93,18 @@ def main(argv: list[str] | None = None) -> int:
     imp.add_argument("--input", type=Path, default=DEFAULT_OUTPUT)
     imp.add_argument("--gold", type=Path, default=DEFAULT_GOLD)
 
+    rules = commands.add_parser(
+        "rules", help="Run the detection rules over stored labels."
+    )
+    rules.add_argument("--input", type=Path, default=DEFAULT_OUTPUT)
+    rules.add_argument("--db", type=Path, default=DEFAULT_DB)
+    rules.add_argument(
+        "--model", help="whose labels to read (default: the only model in the store)"
+    )
+
     args = parser.parse_args(argv)
+    if args.command == "rules":
+        return _rules(args.input, args.db, args.model)
     if args.command == "label":
         try:
             config = (
@@ -148,6 +160,29 @@ def _import_sheet(sheet: Path, calls: Path, gold: Path) -> int:
         f" skipped; {gold} now holds {result.gold_total} calls",
         file=sys.stderr,
     )
+    return 0
+
+
+def _rules(calls_path: Path, db: Path, model: str | None) -> int:
+    calls = read_calls(calls_path)
+    with LabelStore(db) as store:
+        models = store.models()
+        if model is None:
+            if len(models) != 1:
+                found = ", ".join(models) or "none"
+                print(
+                    f"error: choose a model with --model (models in {db}: {found})",
+                    file=sys.stderr,
+                )
+                return 1
+            model = models[0]
+        elif model not in models:
+            print(f"error: no labels from {model} in {db}", file=sys.stderr)
+            return 1
+        answers = store.answers(model)
+        for name, rule in RULES.items():
+            n = store.replace_findings(name, model, rule(calls, answers))
+            print(f"{name}: {n} finding(s) over {model} labels", file=sys.stderr)
     return 0
 
 
