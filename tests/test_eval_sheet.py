@@ -148,7 +148,7 @@ def test_import_writes_answers_and_implied_labels(tmp_path: Path) -> None:
     assert records["s2"]["labels"]["sec.effect"] == "delete"
     assert records["s2"]["labels"]["sec.data_class"] == "secrets"
     assert records["s2"]["sheet"] == "sheet.csv"
-    assert records["s2"]["taxonomy"] == "0.2.1"
+    assert records["s2"]["taxonomy"] == "0.3.0"
 
 
 @pytest.mark.parametrize(
@@ -202,40 +202,73 @@ def test_import_reports_every_problem(tmp_path: Path) -> None:
 
 
 NAME_ONLY = call("n1", args={}, output=None)
+NAME_ONLY_OUTPUT = call("w1", tool_name="WebSearch", args={}, output="results")
 ARGS_ONLY = call("a1", output=None)
+TRIFECTA = {
+    "trifecta.private_source": "no",
+    "trifecta.sink": "yes",
+    "trifecta.untrusted_source": "yes",
+}
 
 
-def test_import_accepts_blanks_below_min_basis(tmp_path: Path) -> None:
+def test_import_accepts_blanks_where_questions_are_not_asked(tmp_path: Path) -> None:
     sheet, gold = tmp_path / "sheet.csv", tmp_path / "gold.jsonl"
     args_row = {k: v for k, v in FULL.items() if k != "injection"}
     write_sheet(
         sheet,
-        [{"span_id": "n1", "effect": "read"}, {"span_id": "a1", **args_row}],
+        [
+            {"span_id": "n1", "effect": "read", **TRIFECTA},
+            {"span_id": "w1", "effect": "read", "injection": "no", **TRIFECTA},
+            {"span_id": "a1", **args_row},
+        ],
     )
-    result = import_sheet(sheet, [NAME_ONLY, ARGS_ONLY], gold=gold)
-    assert result.labeled == 2
+    calls = [NAME_ONLY, NAME_ONLY_OUTPUT, ARGS_ONLY]
+    result = import_sheet(sheet, calls, gold=gold)
+    assert result.labeled == 3
     records = {r["span_id"]: r for r in read_gold(gold)}
-    assert records["n1"]["labels"] == {"sec.effect": "read"}
+    assert set(records["n1"]["labels"]) == {
+        "sec.effect",
+        "sec.trifecta.private_source",
+        "sec.trifecta.sink",
+        "sec.trifecta.untrusted_source",
+    }
+    assert records["w1"]["labels"]["sec.injection"] == "no"
     assert "sec.injection" not in records["a1"]["labels"]
 
 
-def test_import_rejects_answers_below_min_basis(tmp_path: Path) -> None:
+def test_import_rejects_answers_where_questions_are_not_asked(tmp_path: Path) -> None:
     sheet = tmp_path / "sheet.csv"
     write_sheet(sheet, [{"span_id": "n1", **FULL}, {"span_id": "a1", **FULL}])
     with pytest.raises(SheetError) as e:
         import_sheet(sheet, [NAME_ONLY, ARGS_ONLY], gold=tmp_path / "gold.jsonl")
     problems = e.value.problems
-    # name_only: every card except effect needs args or content.
-    assert sum("(n1), column" in p for p in problems) == len(FULL) - 1
+    # name_only without output: only effect and the trifecta questions are asked.
+    assert sorted(
+        p.split("column ")[1].split(":")[0] for p in problems if "(n1)" in p
+    ) == [
+        "data_class.sensitive",
+        "injection",
+        "intent",
+        "reversibility",
+    ]
     assert (
         "row 2 (n1), column intent: must be blank because basis name_only is below"
         " min_basis args"
     ) in problems
-    # args: only injection needs content.
+    # injection is gated on output, not basis.
     assert problems[-1] == (
-        "row 3 (a1), column injection: must be blank because basis args is below"
-        " min_basis content"
+        "row 3 (a1), column injection: must be blank because the call has no output"
     )
+
+
+def test_import_requires_injection_when_there_is_output(tmp_path: Path) -> None:
+    sheet = tmp_path / "sheet.csv"
+    write_sheet(sheet, [{"span_id": "w1", "effect": "read", **TRIFECTA}])
+    with pytest.raises(SheetError) as e:
+        import_sheet(sheet, [NAME_ONLY_OUTPUT], gold=tmp_path / "gold.jsonl")
+    assert e.value.problems == [
+        "row 2 (w1), column injection: needed because the call has output"
+    ]
 
 
 def test_import_uses_the_parsed_basis_not_the_sheet_column(tmp_path: Path) -> None:

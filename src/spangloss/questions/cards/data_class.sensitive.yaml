@@ -3,7 +3,7 @@
 # final answer: p(no) for none, p(yes) x p(class) for a class (Labeling rule 6).
 label: sec.data_class
 step: 1
-taxonomy: 0.2.1
+taxonomy: 0.3.0
 min_basis: args
 question: Does the data visible in this call, whether read, written or sent, include credentials, health information, payment details or personal data about identifiable people?
 answers:

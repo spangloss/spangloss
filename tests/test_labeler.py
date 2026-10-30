@@ -120,7 +120,40 @@ def test_real_cards_load_and_validate() -> None:
     kinds = {c.name: c.kind for c in CARDS}
     assert kinds["effect"] == "choice"
     assert kinds["trifecta.sink"] == "noul"
-    assert {c.taxonomy for c in CARDS} == {"0.2.1"}
+    assert {c.taxonomy for c in CARDS} == {"0.3.0"}
+
+
+CARD_HEAD = "label: sec.x\ntaxonomy: 0.3.0\nquestion: Q?\n"
+
+
+@pytest.mark.parametrize(
+    ("text", "error"),
+    [
+        (
+            CARD_HEAD + "min_basis: name_only\nrequires_output: maybe\n"
+            "answers: {a: A, b: B}\nevidence: [tool_name, output]\n",
+            "requires_output must be true or false",
+        ),
+        (
+            CARD_HEAD + "min_basis: name_only\nrequires_output: true\n"
+            "answers: {a: A, b: B}\nevidence: [tool_name, args]\n",
+            "requires_output needs output in evidence",
+        ),
+        (
+            CARD_HEAD
+            + "min_basis: args\nanswers: {"
+            + ", ".join(f"a{i}: A" for i in range(10))
+            + "}\nevidence: [tool_name]\n",
+            "at most 9 answers",
+        ),
+    ],
+)
+def test_invalid_gating_and_answer_counts_are_rejected(
+    tmp_path: Path, text: str, error: str
+) -> None:
+    (tmp_path / "x.yaml").write_text(text)
+    with pytest.raises(CardError, match=error):
+        load_cards(tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -159,11 +192,49 @@ def test_invalid_cards_are_rejected(tmp_path: Path, text: str, error: str) -> No
 # --- gating and batching -----------------------------------------------------
 
 
-def test_name_only_asks_only_effect() -> None:
+TRIFECTA = {
+    "sec.trifecta.private_source",
+    "sec.trifecta.sink",
+    "sec.trifecta.untrusted_source",
+}
+
+
+def test_name_only_asks_effect_and_trifecta() -> None:
     backend = FakeBackend()
     outcome = label_call(call(args={}, output=None), CARDS, backend)
-    assert set(by_label(outcome)) == {"sec.effect"}
+    assert set(by_label(outcome)) == {"sec.effect"} | TRIFECTA
     assert len(backend.requests) == 1
+    assert backend.requests[0][0] == {"tool_name": "Bash"}
+
+
+def test_output_without_args_asks_injection() -> None:
+    """Basis is not a strict ladder: name_only output still gets injection."""
+    backend = FakeBackend()
+    web = call(tool_name="WebSearch", args={}, output=UNTRUSTED)
+    assert web.basis == "name_only"
+    outcome = label_call(web, CARDS, backend)
+    assert set(by_label(outcome)) == {"sec.effect", "sec.injection"} | TRIFECTA
+    injection_request = next(r for r in backend.requests if "injection" in r[1])
+    assert injection_request[0] == {"tool_name": "WebSearch", "output": UNTRUSTED}
+    assert set(injection_request[1]) == {"injection"}  # data_class needs args
+    structural = next(r for r in backend.requests if "effect" in r[1])
+    assert UNTRUSTED not in json.dumps(structural[0])
+
+
+def test_requires_output_gates_on_output_not_basis() -> None:
+    injection = next(c for c in CARDS if c.name == "injection")
+    assert injection.requires_output and injection.min_basis == "name_only"
+    assert injection.applies_to("name_only", has_output=True)
+    assert not injection.applies_to("args", has_output=False)
+    effect = next(c for c in CARDS if c.name == "effect")
+    assert effect.applies_to("name_only", has_output=False)
+
+
+def test_intent_has_delegate_as_a_ninth_answer() -> None:
+    intent = next(c for c in CARDS if c.name == "intent")
+    assert len(intent.answers) == 9
+    assert "delegate" in intent.answers
+    assert intent.answers["other"] == "None of the above"
 
 
 def test_args_basis_skips_injection_and_batches_into_one_request() -> None:
@@ -262,7 +333,7 @@ def test_labels_carry_provenance() -> None:
             "session-1",
             "content",
         )
-        assert (x.model, x.taxonomy) == ("fake/test", "0.2.1")
+        assert (x.model, x.taxonomy) == ("fake/test", "0.3.0")
 
 
 def test_labels_record_their_own_requests_tokens() -> None:
@@ -624,7 +695,7 @@ def test_store_replaces_rows_for_the_same_call_label_and_model(tmp_path: Path) -
         assert store.labeled_span_ids("other/model") == set()
         effect = next(r for r in rows if r[2] == "sec.effect")
         assert effect[:2] == ("s000000000000001", "session-1")
-        assert effect[5:9] == ("content", "fake/test", "0.2.1", False)
+        assert effect[5:9] == ("content", "fake/test", "0.3.0", False)
         assert effect[9] == by_label(outcome)["sec.effect"].input_tokens
 
 

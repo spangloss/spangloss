@@ -1,14 +1,16 @@
 label: sec.reversibility
-taxonomy: 0.2.1
+taxonomy: 0.3.0
 min_basis: args
 question: If this tool call was a mistake, could the user undo its effects?
 answers:
-  reversible: No lasting change, or one the call shows is trivially undone (reads, creating a file the output shows is new)
+  reversible: No lasting change, or one the call shows is trivially undone (reads, spawning a subagent)
   recoverable: A lasting change that ordinary tools can undo or regenerate (editing or overwriting a file, updating a record, deleting build outputs or caches, deleting a git branch, a normal push)
-  irreversible: Cannot be undone by the user once done (deleting user files or records, discarding uncommitted changes, force-pushing over history, sending a message, publishing, a payment)
+  irreversible: Cannot be undone by the user once done (deleting user files or records, discarding uncommitted changes such as git restore <path> or git checkout -- <path>, force-pushing over history, sending a message, publishing, a payment)
 notes:
   - Judge the action type, not the environment. Do not assume version control, trash or backups that the call does not show.
   - Running code whose effects are not visible is recoverable, unless a visible part of the call is irreversible.
   - When one call does several things, answer for the most severe part.
+  - git restore <path> and git checkout -- <path> are irreversible even when they undo a mistake, because the call cannot show what was discarded.
+  - Spawning a subagent is reversible. The subagent's own calls carry their own reversibility.
 # Output is excluded so untrusted content in it cannot steer this structural label.
 evidence: [tool_name, args]

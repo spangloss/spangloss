@@ -1,6 +1,7 @@
 """Ask a tool call's applicable cards and turn the answers into labels.
 
-- Cards are gated by min_basis (TAXONOMY.md, Input basis); unasked labels are omitted.
+- Cards are gated by min_basis, and by output for cards that require it (TAXONOMY.md,
+  question gating); unasked labels are omitted.
 - Cards that share an evidence set go in one request. Questions in a request share
   one state, so cards that see output and cards that don't go in separate requests.
 - Output longer than CHUNK_CHARS is split into overlapping chunks, each asked in its
@@ -91,7 +92,9 @@ def label_call(
     if reason := backend.screen(call):
         return Outcome([], skipped=reason)
 
-    first_round = [c for c in cards if c.applies_to(call.basis) and c.step != 2]
+    first_round = [
+        c for c in cards if c.applies_to(call.basis, call.has_output) and c.step != 2
+    ]
     try:
         results = _ask_grouped(call, first_round, backend, max_evidence_chars)
         labels = [

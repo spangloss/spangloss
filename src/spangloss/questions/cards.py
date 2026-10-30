@@ -16,6 +16,7 @@ CARDS_DIR = Path(__file__).parent / "cards"
 BASIS_ORDER: dict[str, int] = {"name_only": 0, "args": 1, "content": 2}
 EVIDENCE_FIELDS = frozenset({"tool_name", "args", "output"})
 REQUIRED = ("label", "taxonomy", "min_basis", "question", "answers", "evidence")
+MAX_ANSWERS = 9  # TAXONOMY.md Principle 1
 
 
 class CardError(ValueError):
@@ -34,12 +35,19 @@ class Card:
     evidence: tuple[str, ...]
     step: int | None = None
     asked_if: str | None = None
+    requires_output: bool = False  # asked only when the call has output, at any basis
 
     @property
     def kind(self) -> Literal["noul", "choice"]:
         return "noul" if set(self.answers) == {"yes", "no"} else "choice"
 
-    def applies_to(self, basis: Basis) -> bool:
+    def applies_to(self, basis: Basis, has_output: bool) -> bool:
+        """Whether the labeler asks this card (TAXONOMY.md, question gating).
+
+        Basis is not a strict ladder: a call can have output without arguments.
+        """
+        if self.requires_output and not has_output:
+            return False
         return BASIS_ORDER[basis] >= BASIS_ORDER[self.min_basis]
 
 
@@ -65,6 +73,8 @@ def _load(path: Path) -> Card:
     answers = raw["answers"]
     if not isinstance(answers, dict) or len(answers) < 2:
         raise CardError(f"{path.name}: answers must map at least two answers")
+    if len(answers) > MAX_ANSWERS:
+        raise CardError(f"{path.name}: at most {MAX_ANSWERS} answers")
     if not all(isinstance(k, str) and isinstance(v, str) for k, v in answers.items()):
         raise CardError(f"{path.name}: answers must map strings to strings")
     if raw["min_basis"] not in BASIS_ORDER:
@@ -76,6 +86,11 @@ def _load(path: Path) -> Card:
         )
     if "tool_name" not in evidence:
         raise CardError(f"{path.name}: evidence must include tool_name")
+    requires_output = raw.get("requires_output", False)
+    if not isinstance(requires_output, bool):
+        raise CardError(f"{path.name}: requires_output must be true or false")
+    if requires_output and "output" not in evidence:
+        raise CardError(f"{path.name}: requires_output needs output in evidence")
     notes = raw.get("notes") or []
     if not isinstance(notes, list) or not all(isinstance(n, str) for n in notes):
         raise CardError(f"{path.name}: notes must be a list of strings")
@@ -91,6 +106,7 @@ def _load(path: Path) -> Card:
         evidence=tuple(evidence),
         step=raw.get("step"),
         asked_if=raw.get("asked_if"),
+        requires_output=requires_output,
     )
 
 

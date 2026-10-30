@@ -1,5 +1,5 @@
 label: sec.effect
-taxonomy: 0.2.1
+taxonomy: 0.3.0
 min_basis: name_only
 question: What does this tool call do to the systems it touches?
 answers:
@@ -7,10 +7,12 @@ answers:
   write: Creates, modifies, renames or moves data or state, including creating a message or record on a remote system
   delete: Removes a whole entity such as a file, directory, record or branch
   execute: Runs code whose effects are not visible in the call (scripts, test suites, builds, package installs)
-  none: Changes only the agent's own working state, or nothing
+  none: Changes only the agent's own working state, or nothing (todo lists, planning, tool search and tool loading, spawning a subagent or receiving its result)
 notes:
   - Judge a shell command by the operation it names - rm is delete, cat is read, mv is write. A script name that only suggests an effect (make clean) is execute.
   - Removing content inside a file or record is write, not delete.
   - When one call does several things, answer for the most severe part - delete, then execute, then write, then read, then none.
+  - Harness-internal tools are none - tool search and tool loading, todo lists, planning tools.
+  - Spawning a subagent is none, and so is the call that returns its result. The subagent's own calls are labeled separately, so the spawn does not take on their effects.
 # Output is excluded so untrusted content in it cannot steer this structural label.
 evidence: [tool_name, args]

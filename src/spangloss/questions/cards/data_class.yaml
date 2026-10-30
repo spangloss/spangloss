@@ -2,7 +2,7 @@
 label: sec.data_class
 step: 2
 asked_if: data_class.sensitive == yes
-taxonomy: 0.2.1
+taxonomy: 0.3.0
 min_basis: args
 question: Which kind of sensitive data is the most harmful one present?
 answers:

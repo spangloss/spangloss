@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from spangloss.parse.record import Basis, ParsedToolCall
+from spangloss.parse.record import ParsedToolCall
 from spangloss.questions.cards import Card, load_cards
 
 DEFAULT_SHEET = Path("data/eval/sheet_001.csv")
@@ -118,7 +118,7 @@ def import_sheet(
                     f" {', '.join(allowed)}"
                 )
         if span_id in known:
-            row_problems += _check_blanks(where, answers, cards, known[span_id].basis)
+            row_problems += _check_blanks(where, answers, cards, known[span_id])
         if row_problems:
             problems += row_problems
         else:
@@ -174,18 +174,25 @@ def _cell(text: str) -> str:
 
 
 def _check_blanks(
-    where: str, answers: dict[str, str], cards: list[Card], basis: Basis
+    where: str, answers: dict[str, str], cards: list[Card], call: ParsedToolCall
 ) -> list[str]:
     """A cell is answered exactly when the labeler would ask its question.
 
-    That is when the call's basis reaches the card's min_basis and, for a step-2
-    card, its step-1 answer is yes. Basis comes from the parsed call, not the
-    sheet's basis column, which is only context.
+    That is when the call's basis reaches the card's min_basis, the call has output
+    if the card requires it, and, for a step-2 card, its step-1 answer is yes. Basis
+    and output come from the parsed call, not the sheet's context columns.
     """
     problems = []
+    basis = call.basis
     for card in cards:
         column = f"{where}, column {card.name}"
-        if not card.applies_to(basis):
+        if card.requires_output and not call.has_output:
+            if card.name in answers:
+                problems.append(
+                    f"{column}: must be blank because the call has no output"
+                )
+            continue
+        if not card.applies_to(basis, call.has_output):
             if card.name in answers:
                 problems.append(
                     f"{column}: must be blank because basis {basis} is below"
@@ -202,10 +209,12 @@ def _check_blanks(
                 problems.append(f"{column}: needed because {step1.name} is yes")
             continue
         if card.name not in answers:
-            problems.append(
-                f"{column}: needed because basis {basis} meets min_basis"
-                f" {card.min_basis}"
+            reason = (
+                "the call has output"
+                if card.requires_output
+                else f"basis {basis} meets min_basis {card.min_basis}"
             )
+            problems.append(f"{column}: needed because {reason}")
     return problems
 
 
