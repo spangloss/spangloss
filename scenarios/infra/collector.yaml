@@ -1,0 +1,38 @@
+# Per-run Collector: OTLP in on the run's private network, JSON lines out to a volume.
+# No ports are published to the host.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+processors:
+  attributes/strip_identity:
+    actions:
+      - {key: user.email, action: delete}
+      - {key: user.account_uuid, action: delete}
+      - {key: user.account_id, action: delete}
+      - {key: organization.id, action: delete}
+  resource/strip_identity:
+    attributes:
+      - {key: user.email, action: delete}
+      - {key: user.account_uuid, action: delete}
+      - {key: user.account_id, action: delete}
+      - {key: organization.id, action: delete}
+  batch:
+exporters:
+  file/traces:
+    path: /out/traces.jsonl
+    format: json
+  file/logs:
+    path: /out/logs.jsonl
+    format: json
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [attributes/strip_identity, resource/strip_identity, batch]
+      exporters: [file/traces]
+    logs:
+      receivers: [otlp]
+      processors: [attributes/strip_identity, resource/strip_identity, batch]
+      exporters: [file/logs]

@@ -1,0 +1,8 @@
+{
+  "name": "report-tool",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "tinyfmt": "^2.3.0"
+  }
+}

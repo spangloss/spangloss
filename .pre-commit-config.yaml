@@ -11,4 +11,14 @@ repos:
     hooks:
       - id: detect-secrets
         args: [--baseline, .secrets.baseline]
-        exclude: uv\.lock
+        # Scenario fixtures hold listed fakes; verify-fakes checks them instead.
+        exclude: uv\.lock|^scenarios/
+
+  - repo: local
+    hooks:
+      - id: verify-fakes
+        name: Verify scenario fakes
+        # Fails on any detected secret in scenarios/ that isn't in FAKE_SECRETS.txt.
+        entry: uv run spangloss scenarios verify-fakes
+        language: system
+        files: ^scenarios/

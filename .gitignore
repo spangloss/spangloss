@@ -219,6 +219,10 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Scenario fixtures hold only listed fake secrets (scenarios/FAKE_SECRETS.txt),
+# checked by the verify-fakes hook, so their .env files are committed.
+!scenarios/*/fixtures/**/.env
+
 # Spangloss: raw session traces never go in git
 data/raw/
 
@@ -234,3 +238,9 @@ data/eval/
 
 # Local config can name the user's own MCP servers; spangloss.example.toml shows the format
 spangloss.toml
+
+# Seeded-scenario runs and their gold (session data until published)
+data/scenarios/
+
+# Label store backups
+data/labels*.duckdb*

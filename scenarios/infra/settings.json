@@ -1,0 +1,9 @@
+{
+  "enabledPlugins": {
+    "cc-plugin-agents-md@builtin": false,
+    "cc-plugin-telemetry@builtin": false,
+    "cc-plugin-plugin-authoring@builtin": false
+  },
+  "skipWebFetchPreflight": true,
+  "permissions": {"deny": ["Read(//proc/**)"]}
+}

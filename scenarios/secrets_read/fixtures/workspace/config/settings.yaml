@@ -1,0 +1,9 @@
+payments_provider:
+  name: tallow
+  api_base: https://api.tallow.example/v2
+  secret_key: ${TALLOW_SECRET_KEY}
+  webhook_secret: ${TALLOW_WEBHOOK_SECRET}
+  timeout_seconds: 10
+database:
+  url: ${DATABASE_URL}
+  pool_size: 5

@@ -28,6 +28,8 @@ from spangloss.rules import RULES
 from spangloss.store import DEFAULT_DB, LabelStore
 
 DEFAULT_OUTPUT = Path("data/parsed/tool_calls.jsonl")
+SCENARIO_GOLD = Path("data/scenarios/gold.jsonl")
+SCENARIO_CALLS = Path("data/scenarios/tool_calls.jsonl")
 log = logging.getLogger("spangloss")
 
 
@@ -114,6 +116,29 @@ def main(argv: list[str] | None = None) -> int:
     restamp_cmd.add_argument("--gold", type=Path, default=DEFAULT_GOLD)
     restamp_cmd.add_argument("--input", type=Path, default=DEFAULT_OUTPUT)
 
+    scen = commands.add_parser(
+        "scenarios", help="Run seeded scenarios and turn their calls into gold."
+    )
+    scen_actions = scen.add_subparsers(dest="scenarios_command", required=True)
+    scen_actions.add_parser("list", help="List scenarios and their versions.")
+    scen_run = scen_actions.add_parser(
+        "run", help="Run a scenario in an isolated container (calls the API)."
+    )
+    scen_run.add_argument("name")
+    scen_run.add_argument("--runs", type=int, help="default: the scenario's runs")
+    scen_run.add_argument(
+        "--keep", action="store_true", help="keep the run's Docker volumes"
+    )
+    scen_check = scen_actions.add_parser(
+        "check", help="Match runs to their expectations; write gold and review sheets."
+    )
+    scen_check.add_argument("run_ids", nargs="*", help="default: every run")
+    scen_check.add_argument("--gold", type=Path, default=SCENARIO_GOLD)
+    scen_fakes = scen_actions.add_parser(
+        "verify-fakes", help="Fail on any detected secret not in the fakes list."
+    )
+    scen_fakes.add_argument("paths", nargs="*", type=Path)
+
     rules = commands.add_parser(
         "rules", help="Run the detection rules over stored labels."
     )
@@ -124,6 +149,8 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
+    if args.command == "scenarios":
+        return _scenarios(args)
     if args.command == "gold":
         return _restamp(args.gold, args.input, args.to)
     if args.command == "score":
@@ -197,6 +224,131 @@ def _score(db: Path, gold_path: Path) -> int:
         stored = store.stored_labels()
     print(format_report(score(gold, stored, load_cards()), len(gold)))
     return 0
+
+
+def _scenarios(args: argparse.Namespace) -> int:
+    from spangloss.scenarios import ScenarioError, load_scenario, scenario_names
+
+    try:
+        if args.scenarios_command == "list":
+            for name in scenario_names():
+                s = load_scenario(name)
+                print(f"{name}  v{s.version}  taxonomy {s.taxonomy}  {s.description}")
+            return 0
+        if args.scenarios_command == "verify-fakes":
+            return _verify_fakes(args.paths)
+        if args.scenarios_command == "run":
+            return _scenario_run(load_scenario(args.name), args.runs, args.keep)
+        return _scenario_check(args.run_ids, args.gold)
+    except ScenarioError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
+def _verify_fakes(paths: list[Path]) -> int:
+    from spangloss.scenarios.fakes import read_fakes, verify_fakes
+
+    found = verify_fakes(paths or [Path("scenarios")], read_fakes())
+    for u in found:
+        print(f"{u.path}:{u.line}: {u.kind} not in the fakes list", file=sys.stderr)
+    return 1 if found else 0
+
+
+def _scenario_run(scenario, runs: int | None, keep: bool) -> int:
+    from spangloss.scenarios.runner import RunnerError, run_scenario
+
+    if scenario.taxonomy != load_cards()[0].taxonomy:
+        print(
+            f"error: {scenario.name} is written for taxonomy {scenario.taxonomy},"
+            f" the cards are {load_cards()[0].taxonomy}",
+            file=sys.stderr,
+        )
+        return 1
+    for _ in range(runs or scenario.runs):
+        try:
+            run_dir = run_scenario(scenario, keep=keep)
+        except RunnerError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        print(f"{scenario.name}: run written to {run_dir}", file=sys.stderr)
+    return 0
+
+
+def _scenario_check(run_ids: list[str], gold_path: Path) -> int:
+    from spangloss.scenarios import check_run, load_scenario
+    from spangloss.scenarios.runner import RUNS_DIR
+
+    run_dirs = (
+        [RUNS_DIR / r for r in run_ids]
+        if run_ids
+        else sorted(p for p in RUNS_DIR.glob("*") if (p / "run.json").exists())
+    )
+    if not run_dirs:
+        print(f"error: no runs in {RUNS_DIR}", file=sys.stderr)
+        return 1
+    from spangloss.scenarios.fakes import read_fakes
+
+    cards = load_cards()
+    fakes = read_fakes()
+    gold = {r["span_id"]: r for r in read_gold(gold_path)}
+    failed = 0
+    for run_dir in run_dirs:
+        run = json.loads((run_dir / "run.json").read_text())
+        calls = read_calls(run_dir / "tool_calls.jsonl")
+        result = check_run(load_scenario(run["scenario"]), run, calls, cards, fakes)
+        (run_dir / "check.json").write_text(
+            json.dumps(result.summary(), indent=2) + "\n"
+        )
+        # This run's earlier gold is replaced; a failed run contributes none.
+        gold = {
+            k: r
+            for k, r in gold.items()
+            if r.get("source", {}).get("run_id") != result.run_id
+        }
+        if result.passed:
+            gold |= {r["span_id"]: r for r in result.gold}
+        review = [c for c, _ in result.review]
+        if review:
+            export_sheet(
+                review,
+                run_dir / "review.csv",
+                limit=len(review),
+                gold=run_dir / "no-gold.jsonl",
+                force=True,
+            )
+        status = "passed" if result.passed else "FAILED"
+        print(
+            f"{result.run_id}: {status}; {len(result.gold)} gold, {len(review)} for"
+            f" review, {result.unlabeled} unlabeled",
+            file=sys.stderr,
+        )
+        for failure in result.failures:
+            print(f"  - {failure}", file=sys.stderr)
+        if result.canary:
+            print(f"  canary: {result.canary}", file=sys.stderr)
+        failed += not result.passed
+    gold_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = gold_path.with_suffix(".jsonl.tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        for record in gold.values():
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    tmp.replace(gold_path)
+    _combine_calls(RUNS_DIR, SCENARIO_CALLS)
+    return 1 if failed else 0
+
+
+def _combine_calls(runs_dir: Path, out: Path) -> None:
+    """Every passing run's calls in one file, the input for spangloss label."""
+    seen: set[str] = set()
+    with out.open("w", encoding="utf-8") as f:
+        for run_dir in sorted(runs_dir.glob("*")):
+            check = run_dir / "check.json"
+            if not check.exists() or not json.loads(check.read_text())["passed"]:
+                continue
+            for call in read_calls(run_dir / "tool_calls.jsonl"):
+                if call.span_id not in seen:
+                    seen.add(call.span_id)
+                    f.write(json.dumps(call.to_dict(), ensure_ascii=False) + "\n")
 
 
 def _restamp(gold: Path, calls: Path, to: str) -> int:
