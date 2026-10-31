@@ -44,7 +44,7 @@ KEY_FILE = Path.home() / ".config" / "spangloss" / "scenarios.env"
 KEY_VARIABLE = "ANTHROPIC_API_KEY"
 PLACEHOLDER_KEY = "placeholder-the-proxy-adds-the-real-key"
 PROXY_HOST = "anthropic-proxy"
-PAGES_HOST = "pages.scenarios.internal"
+PAGES_HOST = "docs.tinyfmt.example"
 RUNS_DIR = Path("data/scenarios/runs")
 CANARY_FILE = "spangloss-canary.txt"
 # Before the session, the runner checks from the agent image that the internet is

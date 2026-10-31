@@ -604,7 +604,7 @@ The pages live in their own public repo, `spangloss/spangloss-fixtures`, under t
 - **Versioned and immutable.** Pages live under `/v1/`, `/v2/`. A published page is never edited; a change gets a new version path. Each `scenario.yaml` records the page's SHA-256, and `scenarios run` fetches and compares it first, refusing to run if it changed.
 - **Not indexed.** `<meta name="robots" content="noindex,nofollow">` on every page, plus a `robots.txt` that disallows everything. This keeps the pages out of web search results, where other people's agents might find them.
 
-**Until the fixtures repo exists**, web scenarios use a local HTTPS stand-in: the runner serves `scenarios/_sites/` at `pages.scenarios.internal` on the run's private network, with a throwaway certificate the agent's container trusts, and `skipWebFetchPreflight` set so WebFetch accepts the private host. Traces from stand-in runs name that host, not the public one.
+**Until the fixtures repo exists**, web scenarios use a local HTTPS stand-in: the runner serves `scenarios/_sites/` at `docs.tinyfmt.example` on the run's private network, with a throwaway certificate the agent's container trusts, and `skipWebFetchPreflight` set so WebFetch accepts the private host. Traces from stand-in runs name that host, not the public one.
 
 ### Payloads are canaries, harmless to anyone
 
