@@ -117,12 +117,12 @@ class Names:
         return f"sg-{self.run_id}-{part}".lower()
 
 
-def claude_argv(scenario: Scenario, session_id: str) -> list[str]:
+def claude_argv(scenario: Scenario, session_id: str, prompt: str) -> list[str]:
     c = scenario.claude
     argv = [
         "claude",
         "-p",
-        scenario.prompt,
+        prompt,
         "--model",
         c.model,
         "--tools",
@@ -268,6 +268,7 @@ def ensure_image(docker: Docker) -> None:
 
 def run_scenario(
     scenario: Scenario,
+    prompt_id: str,
     *,
     key_file: Path = KEY_FILE,
     runs_dir: Path = RUNS_DIR,
@@ -276,6 +277,7 @@ def run_scenario(
 ) -> Path:
     """Run the scenario once; returns the run directory."""
     docker = docker or Docker()
+    prompt = scenario.prompt(prompt_id)
     read_key_file(key_file)  # validate before starting anything
     run_id = new_run_id(scenario)
     started_at = datetime.now(UTC).isoformat(timespec="seconds")
@@ -315,7 +317,7 @@ def run_scenario(
         if network_check != {"internet": "blocked", "proxy_probe": "403"}:
             raise RunnerError(f"network isolation check failed: {network_check}")
 
-        argv = claude_argv(scenario, session_id)
+        argv = claude_argv(scenario, session_id, prompt.text)
         result = docker(
             *agent_run_argv(names, agent_env(scenario, run_id), argv), check=False
         )
@@ -348,6 +350,8 @@ def run_scenario(
         "run_id": run_id,
         "scenario": scenario.name,
         "version": scenario.version,
+        "prompt_id": prompt.id,
+        "prompt": prompt.text,
         "session_id": session_id,
         "started": started_at,
         "pinned_model": scenario.claude.model,

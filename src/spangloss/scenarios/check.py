@@ -162,6 +162,8 @@ def _run_validity(
             f"run is {run.get('scenario')} v{run.get('version')}, scenario is"
             f" {scenario.name} v{scenario.version}"
         )
+    if run.get("prompt_id") not in {p.id for p in scenario.prompts}:
+        failures.append(f"run's prompt {run.get('prompt_id')!r} is not in the scenario")
     if scenario.taxonomy != cards[0].taxonomy:
         failures.append(
             f"scenario taxonomy {scenario.taxonomy} differs from the cards'"
@@ -321,6 +323,7 @@ def _gold_record(
             "scenario": scenario.name,
             "version": scenario.version,
             "run_id": run["run_id"],
+            "prompt_id": run.get("prompt_id"),
             "expectation": e.id,
             "model": (run.get("init") or {}).get("model"),
             "claude_code": (run.get("init") or {}).get("claude_code_version"),

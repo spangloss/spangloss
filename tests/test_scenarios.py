@@ -158,7 +158,8 @@ def test_agent_gets_a_placeholder_key_and_the_proxy_url() -> None:
 
 def test_claude_flags_follow_the_scenario() -> None:
     s = load_scenario("tainted_delegation")
-    argv = claude_argv(s, "sess-1")
+    argv = claude_argv(s, "sess-1", "the prompt")
+    assert argv[argv.index("-p") + 1] == "the prompt"
     assert argv[argv.index("--model") + 1] == "claude-sonnet-5-5"
     assert argv[argv.index("--tools") + 1] == "Agent,Read,WebFetch"
     assert argv[argv.index("--permission-mode") + 1] == "dontAsk"
@@ -224,6 +225,7 @@ def test_run_never_passes_the_key_to_any_container_but_the_proxy(
     docker = Docker(run=fake)
     run_dir = run_scenario(
         load_scenario("secrets_read"),
+        "loose",
         key_file=key_file(tmp_path),
         runs_dir=tmp_path / "runs",
         docker=docker,
@@ -239,6 +241,8 @@ def test_run_never_passes_the_key_to_any_container_but_the_proxy(
     assert ["network", "create", "--internal", Names(run["run_id"]).network] in networks
     assert run["init"]["model"] == "claude-sonnet-5-5"
     assert run["init"]["permission_mode_reported"] == "default"
+    assert run["prompt_id"] == "loose"
+    assert run["prompt"].startswith("The payments integration is broken")
     assert run["pinned_model"] == "claude-sonnet-5-5"
     # Everything the run created is removed.
     names = Names(run["run_id"])
@@ -255,6 +259,7 @@ def test_a_reachable_internet_stops_the_run_before_the_session(
     with pytest.raises(RunnerError, match="network isolation check failed"):
         run_scenario(
             load_scenario("secrets_read"),
+            "precise",
             key_file=key_file(tmp_path),
             runs_dir=tmp_path / "runs",
             docker=docker,
@@ -305,6 +310,7 @@ def run_record(scenario_name: str, init: dict | None = None, **kw: Any) -> dict:
         "run_id": f"{scenario_name}-run",
         "scenario": scenario_name,
         "version": s.version,
+        "prompt_id": s.prompts[0].id,
         "session_id": "sess-1",
         "exit_code": 0,
         "init": init
@@ -349,6 +355,7 @@ def test_secrets_read_run_becomes_gold() -> None:
     assert gold["c1"]["answers"]["data_class"] == "secrets"
     assert gold["c1"]["source"]["expectation"] == "read-env"
     assert gold["c1"]["source"]["model"] == "claude-sonnet-5-5"
+    assert gold["c1"]["source"]["prompt_id"] == "precise"
     assert gold["c2"]["labels"]["sec.data_class"] == "secrets"  # when_output
     assert gold["c2"]["labels"]["sec.intent"] == "explore"
     assert [c.span_id for c, _ in result.review] == ["c3"]  # never guessed
@@ -563,3 +570,39 @@ def test_a_none_fixture_holding_a_listed_fake_fails_the_scenario(
 def test_committed_scenarios_are_consistent_with_the_fakes_list() -> None:
     for name in scenario_names():
         assert fixture_consistency(load_scenario(name), read_fakes()) == []
+
+
+def test_prompt_variants_have_ids() -> None:
+    s = load_scenario("secrets_read")
+    assert [p.id for p in s.prompts] == ["precise", "loose", "indirect"]
+    assert s.prompt("indirect").text.startswith("Review this project's configuration")
+    with pytest.raises(ScenarioError, match="no prompt 'nope'"):
+        s.prompt("nope")
+    single = load_scenario("web_injection")
+    assert [p.id for p in single.prompts] == ["default"]
+
+
+def test_a_run_with_an_unknown_prompt_fails_the_check() -> None:
+    run = run_record("secrets_read") | {"prompt_id": "retired"}
+    result = check_run(load_scenario("secrets_read"), run, [], CARDS)
+    assert any("prompt 'retired' is not in the scenario" in f for f in result.failures)
+
+
+def test_runs_of_an_older_version_are_stale_and_lose_their_gold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runs = tmp_path / "runs"
+    run_dir = runs / "secrets_read-old"
+    run_dir.mkdir(parents=True)
+    old = run_record("secrets_read") | {"run_id": "secrets_read-old", "version": 1}
+    (run_dir / "run.json").write_text(json.dumps(old))
+    (run_dir / "tool_calls.jsonl").write_text("")
+    gold = tmp_path / "gold.jsonl"
+    gold.write_text(
+        json.dumps({"span_id": "x", "source": {"run_id": "secrets_read-old"}}) + "\n"
+    )
+    monkeypatch.setattr("spangloss.scenarios.runner.RUNS_DIR", runs)
+    monkeypatch.setattr(cli, "SCENARIO_CALLS", tmp_path / "tool_calls.jsonl")
+    assert cli.main(["scenarios", "check", "--gold", str(gold)]) == 0
+    assert gold.read_text() == ""
+    assert json.loads((run_dir / "check.json").read_text())["stale"] is True

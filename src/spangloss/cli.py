@@ -125,7 +125,12 @@ def main(argv: list[str] | None = None) -> int:
         "run", help="Run a scenario in an isolated container (calls the API)."
     )
     scen_run.add_argument("name")
-    scen_run.add_argument("--runs", type=int, help="default: the scenario's runs")
+    scen_run.add_argument(
+        "--prompt", help="run this prompt variant only (default: every variant)"
+    )
+    scen_run.add_argument(
+        "--runs", type=int, help="runs per prompt variant (default: the scenario's)"
+    )
     scen_run.add_argument(
         "--keep", action="store_true", help="keep the run's Docker volumes"
     )
@@ -238,7 +243,9 @@ def _scenarios(args: argparse.Namespace) -> int:
         if args.scenarios_command == "verify-fakes":
             return _verify_fakes(args.paths)
         if args.scenarios_command == "run":
-            return _scenario_run(load_scenario(args.name), args.runs, args.keep)
+            return _scenario_run(
+                load_scenario(args.name), args.prompt, args.runs, args.keep
+            )
         return _scenario_check(args.run_ids, args.gold)
     except ScenarioError as e:
         print(f"error: {e}", file=sys.stderr)
@@ -254,7 +261,7 @@ def _verify_fakes(paths: list[Path]) -> int:
     return 1 if found else 0
 
 
-def _scenario_run(scenario, runs: int | None, keep: bool) -> int:
+def _scenario_run(scenario, prompt_id: str | None, runs: int | None, keep: bool) -> int:
     from spangloss.scenarios.runner import RunnerError, run_scenario
 
     if scenario.taxonomy != load_cards()[0].taxonomy:
@@ -264,13 +271,17 @@ def _scenario_run(scenario, runs: int | None, keep: bool) -> int:
             file=sys.stderr,
         )
         return 1
-    for _ in range(runs or scenario.runs):
-        try:
-            run_dir = run_scenario(scenario, keep=keep)
-        except RunnerError as e:
-            print(f"error: {e}", file=sys.stderr)
-            return 1
-        print(f"{scenario.name}: run written to {run_dir}", file=sys.stderr)
+    prompt_ids = [prompt_id] if prompt_id else [p.id for p in scenario.prompts]
+    for pid in prompt_ids:
+        scenario.prompt(pid)  # unknown ids fail before anything runs
+    for pid in prompt_ids:
+        for _ in range(runs or scenario.runs):
+            try:
+                run_dir = run_scenario(scenario, pid, keep=keep)
+            except RunnerError as e:
+                print(f"error: {e}", file=sys.stderr)
+                return 1
+            print(f"{scenario.name} [{pid}]: run written to {run_dir}", file=sys.stderr)
     return 0
 
 
@@ -294,8 +305,29 @@ def _scenario_check(run_ids: list[str], gold_path: Path) -> int:
     failed = 0
     for run_dir in run_dirs:
         run = json.loads((run_dir / "run.json").read_text())
+        scenario = load_scenario(run["scenario"])
+        if run.get("version") != scenario.version:
+            # A run of an older scenario version is stale: its gold is dropped and
+            # it neither passes nor fails.
+            gold = {
+                k: r
+                for k, r in gold.items()
+                if r.get("source", {}).get("run_id") != run["run_id"]
+            }
+            (run_dir / "check.json").write_text(
+                json.dumps(
+                    {"run_id": run["run_id"], "passed": False, "stale": True}, indent=2
+                )
+                + "\n"
+            )
+            print(
+                f"{run['run_id']}: stale (v{run.get('version')}; the scenario is"
+                f" v{scenario.version}), gold dropped",
+                file=sys.stderr,
+            )
+            continue
         calls = read_calls(run_dir / "tool_calls.jsonl")
-        result = check_run(load_scenario(run["scenario"]), run, calls, cards, fakes)
+        result = check_run(scenario, run, calls, cards, fakes)
         (run_dir / "check.json").write_text(
             json.dumps(result.summary(), indent=2) + "\n"
         )

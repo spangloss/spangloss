@@ -32,6 +32,12 @@ class Fixture:
 
 
 @dataclass(frozen=True, slots=True)
+class Prompt:
+    id: str
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
 class Match:
     tools: tuple[str, ...]
     args: dict[str, str] = field(default_factory=dict)  # arg key -> regex
@@ -81,7 +87,7 @@ class Scenario:
     version: int
     taxonomy: str
     description: str
-    prompt: str
+    prompts: tuple[Prompt, ...]
     directory: Path
     fixtures: dict[str, Fixture]
     setup: tuple[str, ...]
@@ -94,6 +100,13 @@ class Scenario:
     site: Path | None  # pages served at the scenario pages host, if any
     canary_token: str | None
     publishable: bool
+
+    def prompt(self, prompt_id: str) -> Prompt:
+        for p in self.prompts:
+            if p.id == prompt_id:
+                return p
+        known = ", ".join(p.id for p in self.prompts)
+        raise ScenarioError(f"{self.name} has no prompt {prompt_id!r} (has {known})")
 
     @property
     def workspace_fixtures(self) -> Path:
@@ -152,7 +165,7 @@ def load_scenario(name: str, root: Path = SCENARIOS_DIR) -> Scenario:
         version=_int(raw, "version", where),
         taxonomy=_str(raw, "taxonomy", where),
         description=_str(raw, "description", where),
-        prompt=_str(raw, "prompt", where).strip(),
+        prompts=_prompts(raw, where),
         directory=directory,
         fixtures=fixtures,
         setup=tuple(raw.get("setup") or []),
@@ -191,6 +204,24 @@ def _fixture(fid: str, spec: Any, directory: Path, where: str) -> Fixture:
     if fingerprint not in source.read_text(encoding="utf-8"):
         raise ScenarioError(f"{where}: fixture {fid!r} doesn't contain its fingerprint")
     return Fixture(fid, rel, fingerprint, digest, source)
+
+
+def _prompts(raw: dict[str, Any], where: str) -> tuple[Prompt, ...]:
+    """A list of prompt variants, or a single prompt with the id "default"."""
+    if "prompt" in raw and "prompts" in raw:
+        raise ScenarioError(f"{where}: give prompt or prompts, not both")
+    if "prompt" in raw:
+        return (Prompt("default", _str(raw, "prompt", where).strip()),)
+    items = raw.get("prompts")
+    if not isinstance(items, list) or not items:
+        raise ScenarioError(f"{where}: prompts must be a non-empty list")
+    prompts = tuple(
+        Prompt(_str(p, "id", where), _str(p, "text", where).strip()) for p in items
+    )
+    ids = [p.id for p in prompts]
+    if len(ids) != len(set(ids)) or not all(NAME.match(i) for i in ids):
+        raise ScenarioError(f"{where}: prompt ids must be unique lowercase names")
+    return prompts
 
 
 def _match(raw: Any, fixtures: dict[str, Fixture], where: str) -> Match:
