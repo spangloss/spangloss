@@ -31,6 +31,9 @@ class Span:
     end_time_unix_nano: int
     attributes: dict[str, Any]
     events: list[SpanEvent] = field(default_factory=list)
+    # Attributes of the resource that exported the span. Claude Code also copies
+    # custom resource attributes (OTEL_RESOURCE_ATTRIBUTES) onto each span.
+    resource_attributes: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +84,9 @@ def read_spans(path: Path) -> dict[str, Span]:
     spans: dict[str, Span] = {}
     for request in _requests(path):
         for resource_spans in request.get("resourceSpans", []):
+            resource = decode_attributes(
+                resource_spans.get("resource", {}).get("attributes", [])
+            )
             for scope_spans in resource_spans.get("scopeSpans", []):
                 for s in scope_spans.get("spans", []):
                     spans[s["spanId"]] = Span(
@@ -97,6 +103,7 @@ def read_spans(path: Path) -> dict[str, Span]:
                             )
                             for e in s.get("events", [])
                         ],
+                        resource_attributes=resource,
                     )
     return spans
 

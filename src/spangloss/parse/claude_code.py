@@ -28,7 +28,9 @@ PERMISSION_SPAN = "claude_code.tool.blocked_on_user"
 OUTPUT_EVENT = "tool.output"
 TOOL_RESULT_EVENT = "tool_result"
 
-# Attributes common to every tool span. Anything else on an unknown tool's span is an argument.
+# Attributes common to every tool span. Anything else on an unknown tool's span is an
+# argument, except keys that also appear in the span's resource attributes: Claude Code
+# copies custom resource attributes onto every span, and they describe the exporter.
 ENVELOPE_KEYS = frozenset(
     {
         "agent_id",  # set on calls made inside a subagent; context, not an argument
@@ -142,7 +144,7 @@ def _tool_call(
         (e.attributes for e in span.events if e.name == OUTPUT_EVENT), None
     )
 
-    span_args = _span_args(tool_name, a, output_event)
+    span_args = _span_args(tool_name, a, output_event, span.resource_attributes)
     logged = tool_inputs.get(a.get("tool_use_id", ""))
     args, args_source = _merge_args(tool_name, logged, span_args)
     args = {k: v for k, v in args.items() if k not in IDENTITY_KEYS}
@@ -198,10 +200,14 @@ def loaded_mcp_servers(tool_name: str, args: dict[str, Any]) -> list[str] | None
 
 
 def _span_args(
-    tool_name: str, attributes: dict[str, Any], output_event: dict[str, Any] | None
+    tool_name: str,
+    attributes: dict[str, Any],
+    output_event: dict[str, Any] | None,
+    resource_attributes: dict[str, Any],
 ) -> dict[str, Any]:
     """Arguments visible on the span: mapped or generic attributes, plus any
-    input-describing tool.output fields."""
+    input-describing tool.output fields. Envelope keys and keys that are also
+    resource attributes are never arguments."""
     if tool_name in SPAN_ARGS:
         args = {
             args_key: attributes[span_key]
@@ -209,7 +215,11 @@ def _span_args(
             if span_key in attributes
         }
     else:
-        args = {k: v for k, v in attributes.items() if k not in ENVELOPE_KEYS}
+        args = {
+            k: v
+            for k, v in attributes.items()
+            if k not in ENVELOPE_KEYS and k not in resource_attributes
+        }
     if output_event is not None:
         for event_key, args_key in OUTPUT_EVENT_ARGS.get(tool_name, {}).items():
             if event_key in output_event:

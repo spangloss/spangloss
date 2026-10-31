@@ -295,3 +295,60 @@ def test_older_parsed_records_without_the_field_still_load() -> None:
     record = parse_claude_code(TRACES, LOGS)[0].to_dict()
     del record["loaded_mcp_servers"]
     assert ParsedToolCall(**record).loaded_mcp_servers is None
+
+
+def _attr(key: str, value: str) -> dict:
+    return {"key": key, "value": {"stringValue": value}}
+
+
+def test_denied_call_without_log_takes_args_from_span_only(tmp_path: Path) -> None:
+    """A denied call has no tool_result log event, so its args come from the span.
+    Claude Code copies custom resource attributes onto every span; those are
+    envelope, not arguments."""
+    resource = [
+        _attr("service.name", "claude-code"),
+        _attr("scenario.name", "fake_scenario"),
+        _attr("scenario.run_id", "run-0001"),
+    ]
+    tool = {
+        "traceId": "b" * 32,
+        "spanId": "d000000000000001",
+        "name": "claude_code.tool",
+        "startTimeUnixNano": "1000",
+        "endTimeUnixNano": "2000",
+        "attributes": [
+            _attr("tool_name", "Write"),
+            _attr("tool_use_id", "toolu_fake_denied"),
+            _attr("session.id", "session-denied"),
+            _attr("file_path", "/workspace/other.txt"),
+            _attr("scenario.name", "fake_scenario"),
+            _attr("scenario.run_id", "run-0001"),
+        ],
+    }
+    permission = {
+        "traceId": "b" * 32,
+        "spanId": "d000000000000002",
+        "parentSpanId": "d000000000000001",
+        "name": "claude_code.tool.blocked_on_user",
+        "startTimeUnixNano": "1000",
+        "endTimeUnixNano": "1500",
+        "attributes": [_attr("decision", "reject"), _attr("source", "config")],
+    }
+    traces = tmp_path / "traces.jsonl"
+    request = {
+        "resourceSpans": [
+            {
+                "resource": {"attributes": resource},
+                "scopeSpans": [{"spans": [tool, permission]}],
+            }
+        ]
+    }
+    traces.write_text(json.dumps(request) + "\n", encoding="utf-8")
+
+    (call,) = parse_claude_code(traces)
+    assert call.args == {"file_path": "/workspace/other.txt"}
+    assert call.args_source == "span"
+    assert call.basis == "args"
+    assert not call.has_output
+    assert call.permission_decision == "reject"
+    assert call.success is None  # never executed
