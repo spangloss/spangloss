@@ -191,3 +191,58 @@ def test_cli_score_reads_the_store_and_gold(
     assert "=== fake/m ===" in out and "=== derived ===" in out
 
     assert cli.main(["score", "--db", str(db), "--gold", str(tmp_path / "x")]) == 1
+
+
+# --- call shapes -------------------------------------------------------------
+
+
+def test_call_shape_normalizes_paths_whitespace_and_descriptions() -> None:
+    from spangloss.eval.shapes import call_shape
+    from spangloss.parse import ParsedToolCall
+    from spangloss.parse.record import basis_for
+
+    def bash(span_id: str, command: str, description: str) -> ParsedToolCall:
+        args = {"command": command, "description": description}
+        return ParsedToolCall(
+            trace_id="t" * 32,
+            span_id=span_id,
+            parent_tool_span_id=None,
+            session_id="s",
+            start_time="2026-01-01T00:00:00.000000Z",
+            end_time="2026-01-01T00:00:01.000000Z",
+            tool_name="Bash",
+            args=args,
+            args_source="log",
+            args_truncated=False,
+            output=None,
+            has_output=False,
+            basis=basis_for(args, None),
+            success=True,
+            permission_decision="accept",
+            permission_source="config",
+        )
+
+    a = bash("a", "cat /workspace/app/.env", "Show the env file")
+    b = bash("b", "cat  app/.env ", "Read it")
+    c = bash("c", "cat app/client.py", "Read it")
+    assert call_shape(a) == call_shape(b)
+    assert call_shape(a) != call_shape(c)
+
+
+def test_repeated_shapes_count_once_in_shape_accuracy() -> None:
+    records = [gold(f"r{i}", "content", {EFFECT: "read"}) for i in range(4)]
+    # Three records of one shape, all wrong; one record of another shape, right.
+    stored_labels = [stored("r0", EFFECT, "write", 0.9)] + [
+        stored(f"r{i}", EFFECT, "write" if i < 3 else "read", 0.9) for i in (1, 2, 3)
+    ]
+    shapes = {"r0": "Read a", "r1": "Read a", "r2": "Read a", "r3": "Read b"}
+    (result,) = score(records, stored_labels, CARDS, shapes)
+    effect = by_label(result)[EFFECT]
+    assert effect.accuracy == pytest.approx(1 / 4)  # per record
+    assert (effect.shapes, effect.shape_accuracy) == (2, pytest.approx(1 / 2))
+
+
+def test_unknown_shapes_count_as_their_own(results: dict) -> None:
+    effect = by_label(results["fake/m"])[EFFECT]
+    assert effect.shapes == effect.n  # no shapes given: every record is unique
+    assert effect.shape_accuracy == pytest.approx(effect.accuracy)

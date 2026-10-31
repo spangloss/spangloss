@@ -104,6 +104,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     score_cmd.add_argument("--db", type=Path, default=DEFAULT_DB)
     score_cmd.add_argument("--gold", type=Path, default=DEFAULT_GOLD)
+    score_cmd.add_argument(
+        "--input",
+        type=Path,
+        default=DEFAULT_OUTPUT,
+        help=f"parsed calls, for call shapes (scenario gold: {SCENARIO_CALLS})",
+    )
 
     gold_cmd = commands.add_parser("gold", help="Maintain the gold labels.")
     gold_actions = gold_cmd.add_subparsers(dest="gold_command", required=True)
@@ -159,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "gold":
         return _restamp(args.gold, args.input, args.to)
     if args.command == "score":
-        return _score(args.db, args.gold)
+        return _score(args.db, args.gold, args.input)
     if args.command == "rules":
         return _rules(args.input, args.db, args.model)
     if args.command == "label":
@@ -220,14 +226,28 @@ def _import_sheet(sheet: Path, calls: Path, gold: Path) -> int:
     return 0
 
 
-def _score(db: Path, gold_path: Path) -> int:
+def _score(db: Path, gold_path: Path, calls_path: Path) -> int:
+    from spangloss.eval.shapes import call_shape
+
     gold = read_gold(gold_path)
     if not gold:
         print(f"error: no gold labels in {gold_path}", file=sys.stderr)
         return 1
+    shapes = (
+        {c.span_id: call_shape(c) for c in read_calls(calls_path)}
+        if calls_path.exists()
+        else {}
+    )
+    unshaped = sum(1 for r in gold if r["span_id"] not in shapes)
+    if unshaped:
+        print(
+            f"note: {unshaped} gold call(s) not in {calls_path}; each counts as its"
+            " own shape",
+            file=sys.stderr,
+        )
     with LabelStore(db) as store:
         stored = store.stored_labels()
-    print(format_report(score(gold, stored, load_cards()), len(gold)))
+    print(format_report(score(gold, stored, load_cards(), shapes), len(gold)))
     return 0
 
 

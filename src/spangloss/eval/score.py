@@ -11,6 +11,10 @@ expected calibration error. Results are also broken down by basis.
 - p is the probability of the chosen answer (TAXONOMY.md Labeling rule 6), so
   calibration compares it with whether that answer was right. ECE uses ECE_BINS
   equal-width bins; with few calls it is only indicative.
+- Accuracy is also reported per unique call shape (eval/shapes.py): each shape
+  counts once, with the share of its records answered correctly, so a call repeated
+  across scenario runs doesn't outweigh the rest. Calls with no known shape count
+  as their own shape.
 - Accuracy carries a 95% Wilson score interval, which stays inside [0, 1] and is
   sensible at small n and at 0% or 100%, unlike the normal approximation.
 """
@@ -44,6 +48,7 @@ class Pair:
     predicted: str
     p: float
     basis: str
+    shape: str = ""  # call shape; "" means unknown, scored as its own shape
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +66,8 @@ class LabelScore:
     n: int
     accuracy: float | None  # None when nothing was scored
     ci: tuple[float, float] | None  # 95% Wilson interval for accuracy
+    shapes: int  # unique call shapes among the scored records
+    shape_accuracy: float | None  # mean over shapes of each shape's accuracy
     answers: list[AnswerScore]
     confusion: dict[tuple[str, str], int]  # (gold, predicted) -> count
     ece: float | None
@@ -76,8 +83,13 @@ class ModelScore:
 
 
 def score(
-    gold: list[dict[str, Any]], stored: Iterable[StoredLabel], cards: list[Card]
+    gold: list[dict[str, Any]],
+    stored: Iterable[StoredLabel],
+    cards: list[Card],
+    shapes: dict[str, str] | None = None,
 ) -> list[ModelScore]:
+    """shapes maps span_id to call shape; spans without one are their own shape."""
+    shapes = shapes or {}
     gold_by_span = {r["span_id"]: r for r in gold}
     by_model: dict[str, list[StoredLabel]] = defaultdict(list)
     for x in stored:
@@ -97,7 +109,13 @@ def score(
                 result.skipped_taxonomy += 1
                 continue
             pairs[x.label].append(
-                Pair(record["labels"][x.label], x.answer, x.p, record["basis"])
+                Pair(
+                    record["labels"][x.label],
+                    x.answer,
+                    x.p,
+                    record["basis"],
+                    shapes.get(x.span_id) or f"span:{x.span_id}",
+                )
             )
         # A real model is scored on every gold label; derived labels only on theirs.
         wanted = set(pairs)
@@ -148,6 +166,8 @@ def format_report(results: list[ModelScore], gold_calls: int) -> str:
         (
             f"Gold: {gold_calls} calls. ECE uses {ECE_BINS} equal-width bins; with"
             " this few calls it is only indicative. Accuracy intervals are 95% Wilson."
+            " acc/shape counts each unique call shape (tool + normalized arguments)"
+            " once."
         ),
     ]
     for result in results:
@@ -157,15 +177,15 @@ def format_report(results: list[ModelScore], gold_calls: int) -> str:
                 f"skipped {result.skipped_taxonomy} label(s): taxonomy differs from gold"
             )
         lines.append(
-            f"{'label':<30} {'n':>3} {'acc':>6} {'95% CI':>15} {'ECE':>6}"
-            f" {'missing':>8}"
+            f"{'label':<30} {'n':>3} {'acc':>6} {'95% CI':>15} {'shapes':>6}"
+            f" {'acc/shape':>9} {'ECE':>6} {'missing':>8}"
         )
         for s in result.labels:
             missing = "-" if s.missing is None else str(s.missing)
             ece = f"{'-':>6}" if s.ece is None else f"{s.ece:>6.3f}"
             lines.append(
-                f"{s.label:<30} {s.n:>3} {_pct(s.accuracy)} {_ci(s.ci):>15} {ece}"
-                f" {missing:>8}"
+                f"{s.label:<30} {s.n:>3} {_pct(s.accuracy)} {_ci(s.ci):>15}"
+                f" {s.shapes:>6} {_pct(s.shape_accuracy):>9} {ece} {missing:>8}"
             )
         bases = sorted({b for s in result.labels for b in s.by_basis})
         if bases:
@@ -235,11 +255,20 @@ def _score_label(
         subset = [p for p in pairs if p.basis == basis]
         by_basis[basis] = (len(subset), sum(p.gold == p.predicted for p in subset))
     correct = sum(p.gold == p.predicted for p in pairs)
+    by_shape: dict[str, list[bool]] = defaultdict(list)
+    for p in pairs:
+        by_shape[p.shape].append(p.gold == p.predicted)
     return LabelScore(
         label=label,
         n=len(pairs),
         accuracy=correct / len(pairs) if pairs else None,
         ci=wilson_interval(correct, len(pairs)),
+        shapes=len(by_shape),
+        shape_accuracy=(
+            sum(sum(v) / len(v) for v in by_shape.values()) / len(by_shape)
+            if by_shape
+            else None
+        ),
         answers=answers,
         confusion=dict(confusion),
         ece=expected_calibration_error(pairs) if pairs else None,
