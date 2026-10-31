@@ -15,7 +15,10 @@ from spangloss.eval import (
     DEFAULT_SHEET,
     SheetError,
     export_sheet,
+    format_report,
     import_sheet,
+    read_gold,
+    score,
 )
 from spangloss.parse import ParsedToolCall, parse_claude_code
 from spangloss.questions import label_call, load_cards
@@ -93,6 +96,12 @@ def main(argv: list[str] | None = None) -> int:
     imp.add_argument("--input", type=Path, default=DEFAULT_OUTPUT)
     imp.add_argument("--gold", type=Path, default=DEFAULT_GOLD)
 
+    score_cmd = commands.add_parser(
+        "score", help="Score every model's stored labels against the gold labels."
+    )
+    score_cmd.add_argument("--db", type=Path, default=DEFAULT_DB)
+    score_cmd.add_argument("--gold", type=Path, default=DEFAULT_GOLD)
+
     rules = commands.add_parser(
         "rules", help="Run the detection rules over stored labels."
     )
@@ -103,6 +112,8 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
+    if args.command == "score":
+        return _score(args.db, args.gold)
     if args.command == "rules":
         return _rules(args.input, args.db, args.model)
     if args.command == "label":
@@ -160,6 +171,17 @@ def _import_sheet(sheet: Path, calls: Path, gold: Path) -> int:
         f" skipped; {gold} now holds {result.gold_total} calls",
         file=sys.stderr,
     )
+    return 0
+
+
+def _score(db: Path, gold_path: Path) -> int:
+    gold = read_gold(gold_path)
+    if not gold:
+        print(f"error: no gold labels in {gold_path}", file=sys.stderr)
+        return 1
+    with LabelStore(db) as store:
+        stored = store.stored_labels()
+    print(format_report(score(gold, stored, load_cards()), len(gold)))
     return 0
 
 

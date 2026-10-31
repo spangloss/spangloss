@@ -7,6 +7,7 @@ from typing import Self
 
 import duckdb
 
+from spangloss.eval.score import StoredLabel
 from spangloss.questions.derived import DERIVED_MODEL
 from spangloss.questions.runner import Label
 from spangloss.rules.findings import Answers, Finding
@@ -98,6 +99,13 @@ class LabelStore:
             " output_truncated, input_tokens, chunks FROM labels"
             " ORDER BY span_id, label"
         ).fetchall()
+
+    def stored_labels(self) -> list[StoredLabel]:
+        rows = self._conn.execute(
+            "SELECT span_id, label, answer, p, model, taxonomy FROM labels"
+            " ORDER BY model, span_id, label"
+        ).fetchall()
+        return [StoredLabel(*r) for r in rows]
 
     def models(self) -> list[str]:
         """Models with labels in the store, not counting derived labels."""

@@ -1,5 +1,6 @@
-"""Evaluation: hand-labeling sheets and gold labels."""
+"""Evaluation: hand-labeling sheets, gold labels and scoring."""
 
+from spangloss.eval.score import format_report, score
 from spangloss.eval.sheet import (
     DEFAULT_GOLD,
     DEFAULT_SHEET,
@@ -14,6 +15,8 @@ __all__ = [
     "DEFAULT_SHEET",
     "SheetError",
     "export_sheet",
+    "format_report",
     "import_sheet",
     "read_gold",
+    "score",
 ]
