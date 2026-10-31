@@ -60,40 +60,63 @@ def untrusted(*yes: str) -> dict[str, dict[str, str]]:
     }
 
 
-def test_untrusted_call_under_a_spawn_taints_its_handback() -> None:
+def test_tainted_spawn_with_a_handback_gets_one_finding_naming_it() -> None:
     findings = subagent_taint(SESSION, untrusted("fetch"))
     assert findings == [
-        Finding("subagent_taint", "back_out", "session-1", ("fetch",))
-    ]  # back_in's subagent read nothing untrusted
+        Finding("subagent_taint", "outer", "session-1", ("fetch",), ("back_out",))
+    ]  # inner's subagent read nothing untrusted
 
 
-def test_sub_subagent_taint_reaches_both_handbacks() -> None:
+def test_tainted_spawn_without_a_handback_still_gets_a_finding() -> None:
+    # Headless runs emit no handback: the finding is anchored on the spawn.
+    calls = [call("spawn", "Agent"), call("fetch", "WebFetch", "spawn")]
+    findings = subagent_taint(calls, {"fetch": {UNTRUSTED: "yes"}})
+    assert findings == [Finding("subagent_taint", "spawn", "session-1", ("fetch",))]
+    assert findings[0].handback_span_ids == ()
+
+
+def test_sub_subagent_taint_gives_one_finding_per_spawn() -> None:
     findings = {f.span_id: f for f in subagent_taint(SESSION, untrusted("search"))}
-    assert findings["back_in"].trigger_span_ids == ("search",)
-    assert findings["back_out"].trigger_span_ids == ("search",)  # transitive
+    assert set(findings) == {"outer", "inner"}  # spawns, not handbacks
+    assert findings["inner"].trigger_span_ids == ("search",)
+    assert findings["inner"].handback_span_ids == ("back_in",)
+    assert findings["outer"].trigger_span_ids == ("search",)  # transitive
+    assert findings["outer"].handback_span_ids == ("back_out",)  # direct child only
+
+
+def test_untainted_spawn_has_no_finding() -> None:
+    assert subagent_taint(SESSION, untrusted()) == []
+    assert subagent_taint(SESSION, {}) == []  # unlabeled calls never trigger
 
 
 def test_triggers_list_every_untrusted_call_in_order() -> None:
     findings = {
         f.span_id: f for f in subagent_taint(SESSION, untrusted("search", "fetch"))
     }
-    assert findings["back_out"].trigger_span_ids == ("fetch", "search")
-    assert findings["back_in"].trigger_span_ids == ("search",)
+    assert findings["outer"].trigger_span_ids == ("fetch", "search")
+    assert findings["inner"].trigger_span_ids == ("search",)
 
 
-def test_no_untrusted_calls_no_findings() -> None:
-    assert subagent_taint(SESSION, untrusted()) == []
-    assert subagent_taint(SESSION, {}) == []  # unlabeled calls never trigger
+def test_several_handbacks_are_counted_once() -> None:
+    calls = [
+        call("spawn", "Agent"),
+        call("fetch", "WebFetch", "spawn"),
+        call("hb2", "SubagentHandback", "spawn"),
+        call("hb1", "SubagentHandback", "spawn"),
+    ]
+    findings = subagent_taint(calls, {"fetch": {UNTRUSTED: "yes"}})
+    assert len(findings) == 1
+    assert findings[0].handback_span_ids == ("hb1", "hb2")
 
 
-def test_handback_own_label_and_other_parents_do_not_count() -> None:
-    # A handback labeled yes does not taint itself, and a handback whose parent is
-    # not a spawn is not matched.
+def test_handback_labels_and_calls_outside_spawns_do_not_count() -> None:
+    # A spawn's own handback labeled yes does not taint the spawn, a stray handback
+    # is not a spawn, and a call outside the spawn is not nested under it.
     calls = [
         call("spawn", "Agent"),
         call("hb", "SubagentHandback", "spawn"),
         call("odd", "SubagentHandback", "not-a-spawn"),
-        call("fetch", "WebFetch"),  # not nested under the spawn
+        call("fetch", "WebFetch"),
     ]
     answers = {s: {UNTRUSTED: "yes"} for s in ("hb", "odd", "fetch")}
     assert subagent_taint(calls, answers) == []
@@ -106,7 +129,7 @@ def test_parent_cycles_terminate() -> None:
         call("hb", "SubagentHandback", "a"),
     ]
     findings = subagent_taint(calls, {"b": {UNTRUSTED: "yes"}})
-    assert [f.trigger_span_ids for f in findings] == [("b",)]
+    assert [(f.span_id, f.trigger_span_ids) for f in findings] == [("a", ("b",))]
 
 
 # --- store and CLI -----------------------------------------------------------
@@ -148,13 +171,20 @@ def test_answers_include_derived_labels(tmp_path: Path) -> None:
 
 def test_findings_are_replaced_per_rule_and_model(tmp_path: Path) -> None:
     db = tmp_path / "labels.duckdb"
-    first = [Finding("subagent_taint", "back_out", "session-1", ("fetch",))]
+    first = [Finding("subagent_taint", "outer", "session-1", ("fetch",), ("back_out",))]
     with LabelStore(db) as store:
         store.replace_findings("subagent_taint", "kev", first)
         store.replace_findings("subagent_taint", "other-model", first)
         store.replace_findings("subagent_taint", "kev", [])  # rerun found nothing
         assert store.findings() == [
-            ("subagent_taint", "back_out", "session-1", ["fetch"], "other-model")
+            (
+                "subagent_taint",
+                "outer",
+                "session-1",
+                ["fetch"],
+                "other-model",
+                ["back_out"],
+            )
         ]
         with pytest.raises(ValueError, match="another rule"):
             store.replace_findings("some_other_rule", "kev", first)
@@ -172,9 +202,9 @@ def test_cli_rules_writes_findings(
     assert cli.main(args) == 0
     assert "subagent_taint: 2 finding(s) over kev labels" in capsys.readouterr().err
     with LabelStore(db) as store:
-        assert [(r[1], r[3]) for r in store.findings()] == [
-            ("back_in", ["search"]),
-            ("back_out", ["search"]),
+        assert [(r[1], r[3], r[5]) for r in store.findings()] == [
+            ("inner", ["search"], ["back_in"]),
+            ("outer", ["search"], ["back_out"]),
         ]
 
 
@@ -194,4 +224,28 @@ def test_cli_rules_needs_a_model_when_ambiguous(
     assert cli.main([*args, "--model", "missing"]) == 1
     assert cli.main([*args, "--model", "kev"]) == 0
     with LabelStore(db) as store:
-        assert [r[1] for r in store.findings()] == ["back_out"]
+        assert [r[1] for r in store.findings()] == ["outer"]
+
+
+def test_stores_from_before_handbacks_were_named_gain_the_column(
+    tmp_path: Path,
+) -> None:
+    import duckdb
+
+    db = tmp_path / "labels.duckdb"
+    conn = duckdb.connect(str(db))
+    conn.execute(
+        "CREATE TABLE findings (rule VARCHAR NOT NULL, span_id VARCHAR NOT NULL,"
+        " session_id VARCHAR, trigger_span_ids VARCHAR[] NOT NULL,"
+        " model VARCHAR NOT NULL, found_at TIMESTAMP NOT NULL DEFAULT"
+        " current_timestamp, PRIMARY KEY (rule, span_id, model))"
+    )
+    conn.execute(
+        "INSERT INTO findings (rule, span_id, session_id, trigger_span_ids, model)"
+        " VALUES ('subagent_taint', 'back_out', 'session-1', ['fetch'], 'kev')"
+    )
+    conn.close()
+    with LabelStore(db) as store:
+        assert store.findings() == [
+            ("subagent_taint", "back_out", "session-1", ["fetch"], "kev", [])
+        ]

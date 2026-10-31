@@ -15,6 +15,9 @@ class Finding:
     span_id: str  # the span the finding is about
     session_id: str | None
     trigger_span_ids: tuple[str, ...]  # the spans whose labels triggered it
+    # Handbacks the finding also covers, when captured (subagent taint): named on the
+    # one finding, not counted as findings of their own.
+    handback_span_ids: tuple[str, ...] = ()
 
 
 Rule = Callable[[list[ParsedToolCall], Answers], list[Finding]]

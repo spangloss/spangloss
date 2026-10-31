@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS findings (
     span_id          VARCHAR   NOT NULL,
     session_id       VARCHAR,
     trigger_span_ids VARCHAR[] NOT NULL,
+    handback_span_ids VARCHAR[],
     model            VARCHAR   NOT NULL,
     found_at         TIMESTAMP NOT NULL DEFAULT current_timestamp,
     PRIMARY KEY (rule, span_id, model)
@@ -48,6 +49,7 @@ CREATE TABLE IF NOT EXISTS findings (
 MIGRATIONS = [
     "ALTER TABLE labels ADD COLUMN IF NOT EXISTS input_tokens INTEGER",
     "ALTER TABLE labels ADD COLUMN IF NOT EXISTS chunks INTEGER",
+    "ALTER TABLE findings ADD COLUMN IF NOT EXISTS handback_span_ids VARCHAR[]",
 ]
 
 
@@ -132,7 +134,14 @@ class LabelStore:
     ) -> int:
         """Replace a rule's findings over one model's labels."""
         rows = [
-            (f.rule, f.span_id, f.session_id, list(f.trigger_span_ids), model)
+            (
+                f.rule,
+                f.span_id,
+                f.session_id,
+                list(f.trigger_span_ids),
+                list(f.handback_span_ids),
+                model,
+            )
             for f in findings
         ]
         if any(r[0] != rule for r in rows):
@@ -145,7 +154,8 @@ class LabelStore:
             if rows:
                 self._conn.executemany(
                     "INSERT INTO findings (rule, span_id, session_id,"
-                    " trigger_span_ids, model) VALUES (?, ?, ?, ?, ?)",
+                    " trigger_span_ids, handback_span_ids, model)"
+                    " VALUES (?, ?, ?, ?, ?, ?)",
                     rows,
                 )
             self._conn.execute("COMMIT")
@@ -155,8 +165,10 @@ class LabelStore:
         return len(rows)
 
     def findings(self) -> list[tuple]:
+        """(rule, span_id, session_id, trigger_span_ids, model, handback_span_ids)."""
         return self._conn.execute(
-            "SELECT rule, span_id, session_id, trigger_span_ids, model FROM findings"
+            "SELECT rule, span_id, session_id, trigger_span_ids, model,"
+            " coalesce(handback_span_ids, []) FROM findings"
             " ORDER BY rule, span_id, model"
         ).fetchall()
 
