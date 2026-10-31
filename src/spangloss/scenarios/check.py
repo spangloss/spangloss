@@ -16,6 +16,7 @@ from spangloss.eval.sheet import check_blanks
 from spangloss.parse.record import ParsedToolCall
 from spangloss.questions.cards import Card
 from spangloss.questions.incoming import has_incoming, incoming_content
+from spangloss.questions.runner import SEVERITY
 from spangloss.rules import RULES
 from spangloss.scenarios.spec import Expectation, Match, Scenario
 
@@ -91,23 +92,23 @@ def check_run(
             continue
         for e, _ in hits:
             by_expectation[e.id].append(call)
-        result.expected[call.span_id] = scenario.defaults | hits[0][0].labels
+        expected = _combine([scenario.defaults | e.labels for e, _ in hits])
+        if expected is not None:
+            result.expected[call.span_id] = expected
         label_sets = [labels for _, labels in hits]
         if any(labels is None for labels in label_sets):
             result.review.append((call, "when_output sends it to review"))
             continue
-        if any(labels != label_sets[0] for labels in label_sets[1:]):
-            ids = ", ".join(e.id for e, _ in hits)
-            result.failures.append(f"{call.span_id}: expectations {ids} disagree")
-            result.review.append((call, f"ambiguous: {ids}"))
+        ids = "+".join(e.id for e, _ in hits)
+        labels = _combine(label_sets)  # type: ignore[arg-type]
+        if labels is None:
+            result.review.append(
+                (call, f"compound call matches {ids}, whose intents disagree")
+            )
             continue
-        record, problems = _gold_record(
-            scenario, run, call, hits[0][0], label_sets[0], cards
-        )
+        record, problems = _gold_record(scenario, run, call, ids, labels, cards)
         if problems:
-            result.failures += [
-                f"{call.span_id} ({hits[0][0].id}): {p}" for p in problems
-            ]
+            result.failures += [f"{call.span_id} ({ids}): {p}" for p in problems]
             result.review.append((call, "; ".join(problems)))
             continue
         result.gold.append(record)
@@ -116,7 +117,7 @@ def check_run(
         e.id: [c.span_id for c in by_expectation[e.id]] for e in scenario.expect
     }
     for e in scenario.expect:
-        if e.required and not by_expectation[e.id]:
+        if run.get("prompt_id") in e.required_for and not by_expectation[e.id]:
             result.failures.append(f"required expectation {e.id} matched no call")
     result.failures += _check_findings(scenario, calls, result, by_expectation)
     result.canary = _canary(scenario, run, calls)
@@ -143,6 +144,24 @@ def fixture_consistency(scenario: Scenario, fakes: frozenset[str]) -> list[str]:
                 f" holds {len(found)} value(s) from the fakes list"
             )
     return failures
+
+
+def _combine(label_sets: list[dict[str, str]]) -> dict[str, str] | None:
+    """One call matched by several expectations, as a compound call: each label
+    takes its most severe expected answer (TAXONOMY.md Labeling rule 3; yes over no).
+    Intent has no severity order, so differing intents return None (review)."""
+    combined: dict[str, str] = {}
+    for label in sorted({k for labels in label_sets for k in labels}):
+        values = {labels[label] for labels in label_sets if label in labels}
+        if len(values) == 1:
+            combined[label] = values.pop()
+        elif label in SEVERITY:
+            combined[label] = min(values, key=SEVERITY[label].index)
+        elif values <= {"yes", "no"}:
+            combined[label] = "yes"
+        else:
+            return None
+    return combined
 
 
 def normalize(text: str) -> str:
@@ -220,6 +239,11 @@ def _matches(
         return False, None
     if m.basis is not None and call.basis != m.basis:
         return False, None
+    if any(
+        k in call.args and re.search(pattern, normalize(_text(call.args[k])))
+        for k, pattern in m.not_args.items()
+    ):
+        return False, None
     if m.args:
         present = [k for k in m.args if k in call.args]
         if not present or not any(
@@ -276,7 +300,7 @@ def _gold_record(
     scenario: Scenario,
     run: dict[str, Any],
     call: ParsedToolCall,
-    e: Expectation,
+    expectation: str,
     labels: dict[str, str],
     cards: list[Card],
 ) -> tuple[dict[str, Any], list[str]]:
@@ -324,7 +348,7 @@ def _gold_record(
             "version": scenario.version,
             "run_id": run["run_id"],
             "prompt_id": run.get("prompt_id"),
-            "expectation": e.id,
+            "expectation": expectation,
             "model": (run.get("init") or {}).get("model"),
             "claude_code": (run.get("init") or {}).get("claude_code_version"),
         },

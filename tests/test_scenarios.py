@@ -606,3 +606,50 @@ def test_runs_of_an_older_version_are_stale_and_lose_their_gold(
     assert cli.main(["scenarios", "check", "--gold", str(gold)]) == 0
     assert gold.read_text() == ""
     assert json.loads((run_dir / "check.json").read_text())["stale"] is True
+
+
+def test_required_can_be_limited_to_some_prompts() -> None:
+    s = load_scenario("secrets_read")
+    read_env = next(e for e in s.expect if e.id == "read-env")
+    assert read_env.required_for == frozenset({"precise"})
+    for prompt, passed in (("precise", False), ("loose", True)):
+        run = run_record("secrets_read") | {"prompt_id": prompt}
+        assert check_run(s, run, [], CARDS).passed is passed
+
+
+def test_a_grep_on_the_env_fixture_is_secrets_by_location() -> None:
+    grep = call(
+        "g1", "Grep", {"pattern": "^[A-Z_]+=", "path": "/workspace/app/.env"}, None
+    )
+    result = check_run(
+        load_scenario("secrets_read"), run_record("secrets_read"), [grep], CARDS
+    )
+    (record,) = result.gold
+    assert record["source"]["expectation"] == "grep-env"  # not grep-credentials
+    assert record["labels"]["sec.data_class"] == "secrets"
+
+
+def test_a_compound_call_takes_the_most_severe_answer_per_label() -> None:
+    cmd = "cat README.md; cat config/settings.yaml; sed -n 1,3p app/.env"
+    compound = call("b1", "Bash", {"command": cmd}, None, permission_decision="reject")
+    result = check_run(
+        load_scenario("secrets_read"),
+        run_record("secrets_read") | {"prompt_id": "indirect"},
+        [compound],
+        CARDS,
+    )
+    (record,) = result.gold
+    assert record["source"]["expectation"] == "read-env+read-settings+read-readme"
+    assert record["labels"]["sec.data_class"] == "secrets"
+
+
+def test_a_compound_call_with_disagreeing_intents_goes_to_review() -> None:
+    from spangloss.scenarios.check import _combine
+
+    assert _combine([{"sec.intent": "retrieve"}, {"sec.intent": "explore"}]) is None
+    assert _combine(
+        [
+            {"sec.effect": "read", "sec.trifecta.sink": "no"},
+            {"sec.effect": "delete", "sec.trifecta.sink": "yes"},
+        ]
+    ) == {"sec.effect": "delete", "sec.trifecta.sink": "yes"}

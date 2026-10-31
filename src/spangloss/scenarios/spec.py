@@ -41,6 +41,7 @@ class Prompt:
 class Match:
     tools: tuple[str, ...]
     args: dict[str, str] = field(default_factory=dict)  # arg key -> regex
+    not_args: dict[str, str] = field(default_factory=dict)  # excludes on any hit
     output: str | None = None
     fixture: str | None = None
     agent: str = "any"  # main | subagent | any
@@ -57,7 +58,7 @@ class WhenOutput:
 @dataclass(frozen=True, slots=True)
 class Expectation:
     id: str
-    required: bool
+    required_for: frozenset[str]  # prompt ids this expectation must match under
     match: Match
     labels: dict[str, str]
     when_output: tuple[WhenOutput, ...] = ()
@@ -142,11 +143,15 @@ def load_scenario(name: str, root: Path = SCENARIOS_DIR) -> Scenario:
         fid: _fixture(fid, spec, directory, where)
         for fid, spec in (raw.get("fixtures") or {}).items()
     }
-    expect = tuple(_expectation(e, fixtures, where) for e in raw.get("expect") or [])
+    prompts = _prompts(raw, where)
+    prompt_ids = frozenset(p.id for p in prompts)
+    expect = tuple(
+        _expectation(e, fixtures, prompt_ids, where) for e in raw.get("expect") or []
+    )
     ids = [e.id for e in expect]
     if len(ids) != len(set(ids)):
         raise ScenarioError(f"{where}: expectation ids must be unique")
-    if not any(e.required for e in expect):
+    if not any(e.required_for for e in expect):
         raise ScenarioError(f"{where}: at least one expectation must be required")
     findings = tuple(
         ExpectedFinding(_str(f, "rule", where), _str(f, "anchor", where))
@@ -165,7 +170,7 @@ def load_scenario(name: str, root: Path = SCENARIOS_DIR) -> Scenario:
         version=_int(raw, "version", where),
         taxonomy=_str(raw, "taxonomy", where),
         description=_str(raw, "description", where),
-        prompts=_prompts(raw, where),
+        prompts=prompts,
         directory=directory,
         fixtures=fixtures,
         setup=tuple(raw.get("setup") or []),
@@ -233,7 +238,8 @@ def _match(raw: Any, fixtures: dict[str, Fixture], where: str) -> Match:
     if not tools or not all(isinstance(t, str) for t in tools):
         raise ScenarioError(f"{where}: match needs tool, a name or list of names")
     args = raw.get("args") or {}
-    for pattern in [*args.values(), raw.get("output") or ""]:
+    not_args = raw.get("not_args") or {}
+    for pattern in [*args.values(), *not_args.values(), raw.get("output") or ""]:
         try:
             re.compile(pattern)
         except re.error as e:
@@ -250,6 +256,7 @@ def _match(raw: Any, fixtures: dict[str, Fixture], where: str) -> Match:
     return Match(
         tools=tuple(tools),
         args=dict(args),
+        not_args=dict(not_args),
         output=raw.get("output"),
         fixture=fixture,
         agent=agent,
@@ -258,7 +265,9 @@ def _match(raw: Any, fixtures: dict[str, Fixture], where: str) -> Match:
     )
 
 
-def _expectation(raw: Any, fixtures: dict[str, Fixture], where: str) -> Expectation:
+def _expectation(
+    raw: Any, fixtures: dict[str, Fixture], prompt_ids: frozenset[str], where: str
+) -> Expectation:
     if not isinstance(raw, dict):
         raise ScenarioError(f"{where}: each expectation must be a mapping")
     eid = _str(raw, "id", where)
@@ -273,9 +282,20 @@ def _expectation(raw: Any, fixtures: dict[str, Fixture], where: str) -> Expectat
             raise ScenarioError(
                 f"{where}: {eid}: when_output needs matches or otherwise"
             )
+    required = raw.get("required", False)
+    if required is True:
+        required_for = prompt_ids
+    elif required is False:
+        required_for = frozenset()
+    elif isinstance(required, list) and set(required) <= prompt_ids:
+        required_for = frozenset(required)
+    else:
+        raise ScenarioError(
+            f"{where}: {eid}: required must be true, false or a list of prompt ids"
+        )
     return Expectation(
         id=eid,
-        required=bool(raw.get("required", False)),
+        required_for=required_for,
         match=_match(raw.get("match"), fixtures, f"{where}: {eid}"),
         labels=dict(raw.get("labels") or {}),
         when_output=tuple(when),
