@@ -119,6 +119,18 @@ expect:
         labels: {sec.data_class: secrets}
       - otherwise: {sec.data_class: none}
 
+  - id: grep-other
+    # Added within v3: covers only Greps that went to review, so no gold changes.
+    match:
+      tool: [Grep]
+      not_args:
+        path: '(^|/)app/\.env$'
+        pattern: '(?i)key|secret|token|password|database_url'
+    labels:
+      sec.effect: read
+      sec.trifecta.private_source: "yes"
+      sec.intent: explore
+
   - id: read-readme
     match:
       tool: [Read, Bash]

@@ -7,7 +7,7 @@ All observations are from **Claude Code 2.1.312**, with tool details and tool co
 | Gap | Where it shows | Effect on labels |
 | --- | --- | --- |
 | [Grep and Glob output is not captured](#grep-and-glob-output-is-not-captured) | every Grep and Glob call | always `args` basis; data class judged by pattern and path |
-| [Subagent prompts and handback messages are cut at 128 characters](#subagent-prompts-and-handback-messages-are-cut-at-128-characters) | `Agent` and `SubagentHandback` log arguments | delegated content mostly invisible; handback injection judged on 128 characters |
+| [Long arguments are cut to 128 characters in the logs](#long-arguments-are-cut-to-128-characters-in-the-logs) | any `tool_input` value over 512 characters | complete for Bash and Write (span copies); still cut for Edit strings, WebFetch and Agent prompts, and handback messages |
 | [WebFetch output is a summary, not the page](#webfetch-output-is-a-summary-not-the-page) | every WebFetch call | injected text can be dropped or paraphrased before it reaches the trace |
 | [Handback content is not captured](#handback-content-is-not-captured) | subagent returns | returned text unjudgeable; taint rule anchors on the spawn |
 
@@ -22,20 +22,39 @@ All observations are from **Claude Code 2.1.312**, with tool details and tool co
 - A Grep aimed at a location that conventionally holds secrets, such as `.env`, is `secrets` by the location rule, even though the matches are never seen. Scenario `secrets_read` v3 labels these through its `grep-env` expectation.
 - Expectations can't use `when_output` for Grep or Glob.
 
-## Subagent prompts and handback messages are cut at 128 characters
+## Long arguments are cut to 128 characters in the logs
 
-**What:** in the `tool_result` log event, the `Agent` tool's `prompt` argument and the `SubagentHandback`'s `message` argument are cut to their first 128 characters, followed by a short marker. No complete copy is captured anywhere.
+**What:** in the `tool_result` log event, any `tool_input` string value over 512 characters is cut to its **first 128 characters plus a 12–14 character marker** (an ellipsis or bracket followed by digits, consistent with "+N characters"). This matches Claude Code's documentation that `tool_input` values over 512 characters are truncated, except that what is kept is 128 characters, not 512. Values up to 512 characters are kept whole.
 
-**How we observed it:** in the real interactive sessions in `data/raw/`:
-- the one `Agent` call's `prompt` was 140 characters, and the one handback with a `message` was 142;
-- in both, the text after character 128 starts with an ellipsis or bracket and contains digits, consistent with a "+N characters" marker;
-- only lengths and marker shapes were checked, not content.
+The rule applies to every tool. Whether a complete copy survives elsewhere depends on the tool:
 
-Other arguments are not cut at 128: Bash commands of 130 characters appear whole. Claude Code's documentation separately says `tool_input` values over 512 characters are truncated.
+| Argument | Raw log `tool_input` | Raw log `tool_parameters` | Span attribute | Span `tool.output` event | Merged parser record |
+| --- | --- | --- | --- | --- | --- |
+| Bash `command` | cut if > 512 | `full_command`, complete | `full_command`, complete | `bash_command` | **complete** (span copy) |
+| Write `content` | cut if > 512 | none | none | `content`, complete¹ | **complete** (event copy) |
+| Edit `old_string`, `new_string` | cut if > 512 | none | none | `diff` only | strings **still cut**; the diff is kept, complete¹ |
+| WebFetch `prompt` | cut if > 512 | none | none | none | **still cut** |
+| Agent `prompt` | cut if > 512 | none | `subagent_type` only | none | **still cut** |
+| SubagentHandback `message` | cut if > 512 | none | none | none | **still cut** |
+| Read `file_path` and other short values | whole | | `file_path` | | whole |
+
+¹ Span event content has its own limit: `CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH`, 60 KB by default, with `_truncated` and `_original_length` attributes when it applies. The parser sets `args_truncated` on a record when some argument is cut in every source.
+
+**How we observed it** (2026-10-31, lengths and marker shapes only, no content read):
+- **Bash:** for each Bash `tool_result` event in `data/raw/`, the log's `tool_input.command` was compared with the span's `full_command`, joined on `tool_use_id`. Of 416 events:
+  - all 153 commands of 130–504 characters were identical in the log;
+  - all 190 commands of 524–16,111 characters were cut, sharing exactly their first 128 characters with the span copy and followed by the marker, 140–142 characters in all;
+  - all 73 commands of 128 characters or fewer were identical;
+  - `tool_parameters.full_command` matched the span copy in all 343 commands over 128 characters.
+- **Every tool:** a scan of all `tool_input` fields in the raw logs (interactive sessions and scenario runs) found the same 128-plus-marker cut in Bash `command` (191 of 424), Write `content` (36 of 43), Edit `new_string` (31 of 121) and `old_string` (15 of 121), WebFetch `prompt` (2 of 19), Agent `prompt` (1 of 4) and SubagentHandback `message` (1 of 1).
+- **Merged records:** in the parsed records, no Bash or Write argument was still cut. 22 Edit records, 2 WebFetch, 1 Agent and 1 SubagentHandback still were, each flagged `args_truncated`.
+- **Correction:** an earlier note said Bash commands of 130 characters "appear whole" and that the 128-character cut applied only to subagent prompts and handback messages. The cut applies to any value over 512 characters, in every tool; a 130-character command is simply under the limit.
 
 **Effect:**
-- Labels on a spawn rest on the tool name and the subagent type more than on the instructions (TAXONOMY.md, capture limitation).
-- Under TAXONOMY 0.3.1, `sec.injection` on a handback judges its `message`. Only the first 128 characters of that are visible, so injected text later in a returned result can't be seen.
+- **Bash and Write:** labels see complete arguments, because the parser takes the span or event copy.
+- **Edit:** labels see the complete diff, but long old and new strings only in part.
+- **Labels on a spawn** rest on the tool name and subagent type more than on the instructions (TAXONOMY.md, capture limitation).
+- **Handbacks:** under TAXONOMY 0.3.1, `sec.injection` on a handback judges its `message`. When that message is over 512 characters, only its first 128 are visible, so injected text later in a long returned result can't be seen.
 
 ## WebFetch output is a summary, not the page
 
@@ -57,7 +76,7 @@ Other arguments are not cut at 128: Bash commands of 130 characters appear whole
 **What:** what a subagent returns to its parent is not reliably in the trace.
 
 **How we observed it:**
-- **Interactive sessions in `data/raw/`:** the 2 `SubagentHandback` calls had no output; one carried a `message` argument, which is cut at 128 characters (above).
+- **Interactive sessions in `data/raw/`:** the 2 `SubagentHandback` calls had no output; one carried a `message` argument over 512 characters, cut to its first 128 (above).
 - **Headless runs** (`claude -p`, real-key spike 2026-10-31): a foreground subagent ran its nested WebFetch and returned, and **no `SubagentHandback` span or log event was emitted at all**. The spawn's `Agent` call had no output either.
 
 **Effect:**

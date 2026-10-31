@@ -241,6 +241,7 @@ A subagent's result reaches the parent agent when the spawn returns, and sometim
 - `sec.data_class`: whether to add `proprietary` (dropped for v0 because nearly all coding-agent data qualifies); whether precedence is the right rule versus multi-label; whether volume should matter (one test key currently outranks a bulk record dump); whether domain packs should own finer classes.
 - `sec.injection`: whether to also check injected text that the agent passes onward in a call's arguments (for example, to a subagent or into a message). For subagents this needs capture work first (see the capture limitation under Input basis).
 - Data sent to a non-messaging API (for example, a JSON POST to an API endpoint that isn't a chat webhook or mail service): `sec.effect` (`write` needs the span to show something created), `sec.reversibility` (`irreversible` names sending a message), and `sec.intent` (`communicate` is for content addressed to people) don't settle it. Seeded scenarios avoid it for now by using a webhook-style message.
+- Tool output that reports injected content it removed (for example, a fetch summary noting hidden instructions). Consider a separate signal so neutralized attempts stay visible.
 - Parsing: whether the parser should record output truncation so evaluation can separate "no injection" from "not captured".
 
 ## Changelog
