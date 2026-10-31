@@ -14,7 +14,9 @@ from spangloss.parse.record import Basis
 
 CARDS_DIR = Path(__file__).parent / "cards"
 BASIS_ORDER: dict[str, int] = {"name_only": 0, "args": 1, "content": 2}
-EVIDENCE_FIELDS = frozenset({"tool_name", "args", "output"})
+# "incoming" is the call's incoming content: its output, or for a return-path tool,
+# its content-carrying argument (questions/incoming.py).
+EVIDENCE_FIELDS = frozenset({"tool_name", "args", "output", "incoming"})
 REQUIRED = ("label", "taxonomy", "min_basis", "question", "answers", "evidence")
 MAX_ANSWERS = 9  # TAXONOMY.md Principle 1
 
@@ -35,18 +37,19 @@ class Card:
     evidence: tuple[str, ...]
     step: int | None = None
     asked_if: str | None = None
-    requires_output: bool = False  # asked only when the call has output, at any basis
+    requires_incoming: bool = False  # asked only when the call has incoming content
 
     @property
     def kind(self) -> Literal["noul", "choice"]:
         return "noul" if set(self.answers) == {"yes", "no"} else "choice"
 
-    def applies_to(self, basis: Basis, has_output: bool) -> bool:
+    def applies_to(self, basis: Basis, has_incoming: bool) -> bool:
         """Whether the labeler asks this card (TAXONOMY.md, question gating).
 
-        Basis is not a strict ladder: a call can have output without arguments.
+        Basis is not a strict ladder: a call can have incoming content without
+        arguments. has_incoming comes from questions.incoming.has_incoming.
         """
-        if self.requires_output and not has_output:
+        if self.requires_incoming and not has_incoming:
             return False
         return BASIS_ORDER[basis] >= BASIS_ORDER[self.min_basis]
 
@@ -86,11 +89,17 @@ def _load(path: Path) -> Card:
         )
     if "tool_name" not in evidence:
         raise CardError(f"{path.name}: evidence must include tool_name")
-    requires_output = raw.get("requires_output", False)
-    if not isinstance(requires_output, bool):
-        raise CardError(f"{path.name}: requires_output must be true or false")
-    if requires_output and "output" not in evidence:
-        raise CardError(f"{path.name}: requires_output needs output in evidence")
+    if "requires_output" in raw:
+        raise CardError(
+            f"{path.name}: requires_output was replaced by requires_incoming in 0.3.1"
+        )
+    requires_incoming = raw.get("requires_incoming", False)
+    if not isinstance(requires_incoming, bool):
+        raise CardError(f"{path.name}: requires_incoming must be true or false")
+    if requires_incoming and "incoming" not in evidence:
+        raise CardError(f"{path.name}: requires_incoming needs incoming in evidence")
+    if {"incoming", "output"} <= set(evidence):
+        raise CardError(f"{path.name}: evidence can't hold both incoming and output")
     notes = raw.get("notes") or []
     if not isinstance(notes, list) or not all(isinstance(n, str) for n in notes):
         raise CardError(f"{path.name}: notes must be a list of strings")
@@ -106,7 +115,7 @@ def _load(path: Path) -> Card:
         evidence=tuple(evidence),
         step=raw.get("step"),
         asked_if=raw.get("asked_if"),
-        requires_output=requires_output,
+        requires_incoming=requires_incoming,
     )
 
 

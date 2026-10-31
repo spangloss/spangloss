@@ -14,6 +14,7 @@ from typing import Any
 
 from spangloss.parse.record import ParsedToolCall
 from spangloss.questions.cards import Card, load_cards
+from spangloss.questions.incoming import has_incoming
 
 DEFAULT_SHEET = Path("data/eval/sheet_001.csv")
 DEFAULT_GOLD = Path("data/eval/gold.jsonl")
@@ -178,21 +179,23 @@ def _check_blanks(
 ) -> list[str]:
     """A cell is answered exactly when the labeler would ask its question.
 
-    That is when the call's basis reaches the card's min_basis, the call has output
-    if the card requires it, and, for a step-2 card, its step-1 answer is yes. Basis
-    and output come from the parsed call, not the sheet's context columns.
+    That is when the call's basis reaches the card's min_basis, the call has incoming
+    content if the card requires it (output, or a return-path tool's content-carrying
+    argument), and, for a step-2 card, its step-1 answer is yes. Basis and content
+    come from the parsed call, not the sheet's context columns.
     """
     problems = []
     basis = call.basis
+    incoming = has_incoming(call)
     for card in cards:
         column = f"{where}, column {card.name}"
-        if card.requires_output and not call.has_output:
+        if card.requires_incoming and not incoming:
             if card.name in answers:
                 problems.append(
-                    f"{column}: must be blank because the call has no output"
+                    f"{column}: must be blank because the call has no incoming content"
                 )
             continue
-        if not card.applies_to(basis, call.has_output):
+        if not card.applies_to(basis, incoming):
             if card.name in answers:
                 problems.append(
                     f"{column}: must be blank because basis {basis} is below"
@@ -210,8 +213,8 @@ def _check_blanks(
             continue
         if card.name not in answers:
             reason = (
-                "the call has output"
-                if card.requires_output
+                "the call has incoming content"
+                if card.requires_incoming
                 else f"basis {basis} meets min_basis {card.min_basis}"
             )
             problems.append(f"{column}: needed because {reason}")

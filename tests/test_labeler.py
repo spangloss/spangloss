@@ -122,24 +122,34 @@ def test_real_cards_load_and_validate() -> None:
     kinds = {c.name: c.kind for c in CARDS}
     assert kinds["effect"] == "choice"
     assert kinds["trifecta.sink"] == "noul"
-    assert {c.taxonomy for c in CARDS} == {"0.3.0"}
+    assert {c.taxonomy for c in CARDS} == {"0.3.1"}
 
 
-CARD_HEAD = "label: sec.x\ntaxonomy: 0.3.0\nquestion: Q?\n"
+CARD_HEAD = "label: sec.x\ntaxonomy: 0.3.1\nquestion: Q?\n"
 
 
 @pytest.mark.parametrize(
     ("text", "error"),
     [
         (
-            CARD_HEAD + "min_basis: name_only\nrequires_output: maybe\n"
-            "answers: {a: A, b: B}\nevidence: [tool_name, output]\n",
-            "requires_output must be true or false",
+            CARD_HEAD + "min_basis: name_only\nrequires_incoming: maybe\n"
+            "answers: {a: A, b: B}\nevidence: [tool_name, incoming]\n",
+            "requires_incoming must be true or false",
+        ),
+        (
+            CARD_HEAD + "min_basis: name_only\nrequires_incoming: true\n"
+            "answers: {a: A, b: B}\nevidence: [tool_name, args]\n",
+            "requires_incoming needs incoming in evidence",
         ),
         (
             CARD_HEAD + "min_basis: name_only\nrequires_output: true\n"
-            "answers: {a: A, b: B}\nevidence: [tool_name, args]\n",
-            "requires_output needs output in evidence",
+            "answers: {a: A, b: B}\nevidence: [tool_name, output]\n",
+            "requires_output was replaced by requires_incoming",
+        ),
+        (
+            CARD_HEAD + "min_basis: name_only\n"
+            "answers: {a: A, b: B}\nevidence: [tool_name, output, incoming]\n",
+            "both incoming and output",
         ),
         (
             CARD_HEAD
@@ -223,13 +233,58 @@ def test_output_without_args_asks_injection() -> None:
     assert UNTRUSTED not in json.dumps(structural[0])
 
 
-def test_requires_output_gates_on_output_not_basis() -> None:
+def test_requires_incoming_gates_on_incoming_content_not_basis() -> None:
     injection = next(c for c in CARDS if c.name == "injection")
-    assert injection.requires_output and injection.min_basis == "name_only"
-    assert injection.applies_to("name_only", has_output=True)
-    assert not injection.applies_to("args", has_output=False)
+    assert injection.requires_incoming and injection.min_basis == "name_only"
+    assert injection.applies_to("name_only", has_incoming=True)
+    assert not injection.applies_to("args", has_incoming=False)
     effect = next(c for c in CARDS if c.name == "effect")
-    assert effect.applies_to("name_only", has_output=False)
+    assert effect.applies_to("name_only", has_incoming=False)
+
+
+def handback(message: str | None) -> ParsedToolCall:
+    args = {} if message is None else {"message": message}
+    return call(tool_name="SubagentHandback", args=args, output=None)
+
+
+def test_handback_message_is_incoming_content_for_injection() -> None:
+    backend = FakeBackend()
+    by_label(label_call(handback(UNTRUSTED), CARDS, backend))
+    injection = next(r for r in backend.requests if "injection" in r[1])
+    # The message is sent once, as returned content, and not again in args.
+    assert injection[0] == {
+        "tool_name": "SubagentHandback",
+        "returned_content": UNTRUSTED,
+    }
+    assert set(injection[1]) == {"injection"}
+    # Cards that see args still see the message as an argument.
+    structural = next(r for r in backend.requests if "effect" in r[1])
+    assert structural[0]["args"] == {"message": UNTRUSTED}
+    assert "returned_content" not in structural[0]
+
+
+def test_handback_without_message_is_not_asked_injection() -> None:
+    backend = FakeBackend()
+    labels = by_label(label_call(handback(None), CARDS, backend))
+    assert "sec.injection" not in labels
+    assert not any("injection" in r[1] for r in backend.requests)
+
+
+def test_handback_output_alone_is_not_incoming_content() -> None:
+    # TAXONOMY 0.3.1: for a return-path tool, the incoming content is the argument.
+    backend = FakeBackend()
+    hb = call(tool_name="SubagentHandback", args={}, output="done")
+    labels = by_label(label_call(hb, CARDS, backend))
+    assert "sec.injection" not in labels
+
+
+def test_ordinary_tool_injection_shares_its_request_with_output_cards() -> None:
+    # Unchanged from 0.3.0: injection and data_class step 1 see the same evidence.
+    backend = FakeBackend()
+    label_call(call(output="total 0"), CARDS, backend)
+    with_output = [r for r in backend.requests if "output" in r[0]]
+    assert len(with_output) == 1
+    assert {"injection", "data_class.sensitive"} <= set(with_output[0][1])
 
 
 def test_intent_has_delegate_as_a_ninth_answer() -> None:
@@ -335,7 +390,7 @@ def test_labels_carry_provenance() -> None:
             "session-1",
             "content",
         )
-        assert (x.model, x.taxonomy) == ("fake/test", "0.3.0")
+        assert (x.model, x.taxonomy) == ("fake/test", "0.3.1")
 
 
 def test_labels_record_their_own_requests_tokens() -> None:
@@ -697,7 +752,7 @@ def test_store_replaces_rows_for_the_same_call_label_and_model(tmp_path: Path) -
         assert store.labeled_span_ids("other/model") == set()
         effect = next(r for r in rows if r[2] == "sec.effect")
         assert effect[:2] == ("s000000000000001", "session-1")
-        assert effect[5:9] == ("content", "fake/test", "0.3.0", False)
+        assert effect[5:9] == ("content", "fake/test", "0.3.1", False)
         assert effect[9] == by_label(outcome)["sec.effect"].input_tokens
 
 
@@ -784,7 +839,7 @@ def test_tool_loading_untrusted_source_is_derived_not_asked(
     untrusted = by_label(outcome)["sec.trifecta.untrusted_source"]
     assert (untrusted.answer, untrusted.p, untrusted.model) == (answer, 1.0, "derived")
     assert (untrusted.chunks, untrusted.input_tokens) == (0, None)
-    assert untrusted.taxonomy == "0.3.0"
+    assert untrusted.taxonomy == "0.3.1"
     asked = {qid for _, questions in backend.requests for qid in questions}
     assert "trifecta.untrusted_source" not in asked
     assert "trifecta.sink" in asked  # only the derived label is skipped

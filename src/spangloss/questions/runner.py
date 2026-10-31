@@ -1,9 +1,12 @@
 """Ask a tool call's applicable cards and turn the answers into labels.
 
-- Cards are gated by min_basis, and by output for cards that require it (TAXONOMY.md,
-  question gating); unasked labels are omitted.
+- Cards are gated by min_basis, and by incoming content for cards that require it
+  (TAXONOMY.md, question gating); unasked labels are omitted.
 - Cards that share an evidence set go in one request. Questions in a request share
   one state, so cards that see output and cards that don't go in separate requests.
+- An "incoming" card sees the call's incoming content (questions/incoming.py): the
+  output under the "output" key, or a return-path tool's content-carrying argument
+  under "returned_content", with that argument left out of args.
 - Output longer than CHUNK_CHARS is split into overlapping chunks, each asked in its
   own request, and the answers are combined by the most severe answer (Labeling
   rule 3): yes if any chunk says yes, with the highest such p; otherwise no, with
@@ -33,6 +36,12 @@ from spangloss.backends.base import (
 from spangloss.parse.record import ParsedToolCall
 from spangloss.questions.cards import Card
 from spangloss.questions.derived import DERIVED_MODEL, derived_answers
+from spangloss.questions.incoming import (
+    RETURNED_CONTENT_KEY,
+    has_incoming,
+    incoming_view,
+    is_return_path,
+)
 
 # About 8,192 tokens at a conservative 3 characters per token: Kev-4B's validated context.
 DEFAULT_MAX_EVIDENCE_CHARS = 24_000
@@ -106,7 +115,7 @@ def label_call(
     first_round = [
         c
         for c in cards
-        if c.applies_to(call.basis, call.has_output)
+        if c.applies_to(call.basis, has_incoming(call))
         and c.step != 2
         and c.label not in decided
     ]
@@ -151,24 +160,38 @@ def split_output(output: str) -> list[tuple[int, str]]:
         start += CHUNK_CHARS - CHUNK_OVERLAP
 
 
+def content_key(call: ParsedToolCall, fields: tuple[str, ...]) -> str | None:
+    """The evidence key for the call's content, or None when the card sees none.
+
+    For "incoming" cards the call is already the incoming view, so its output slot
+    holds the incoming content.
+    """
+    if call.output is None:
+        return None
+    if "incoming" in fields:
+        return RETURNED_CONTENT_KEY if is_return_path(call) else "output"
+    return "output" if "output" in fields else None
+
+
 def build_evidence(
     call: ParsedToolCall, fields: tuple[str, ...], max_chars: int
 ) -> tuple[dict[str, Any], bool]:
-    """The evidence a card may see, cut to max_chars by truncating output only."""
+    """The evidence a card may see, cut to max_chars by truncating content only."""
     evidence: dict[str, Any] = {"tool_name": call.tool_name}
     if "args" in fields and call.args:
         evidence["args"] = call.args
-    if "output" in fields and call.output is not None:
-        evidence["output"] = call.output
+    key = content_key(call, fields)
+    if key is not None:
+        evidence[key] = call.output
     if _size(evidence) <= max_chars:
         return evidence, False
-    if "output" not in evidence:
+    if key is None:
         raise EvidenceTooLong(f"arguments alone exceed {max_chars} characters")
 
-    output = evidence["output"]
-    keep = max_chars - _size({**evidence, "output": ""})
+    output = evidence[key]
+    keep = max_chars - _size({**evidence, key: ""})
     while keep > 0:
-        evidence["output"] = (
+        evidence[key] = (
             output[:keep]
             + f"\n…[output truncated: first {keep} of {len(output)} characters]"
         )
@@ -204,12 +227,22 @@ def _ask_grouped(
         present.add("args")
     if call.output is not None:
         present.add("output")
+    if has_incoming(call):
+        present.add("incoming")
+    # For an ordinary tool the incoming content is the output, so "incoming" cards
+    # share a request with "output" cards, exactly as before 0.3.1.
+    ordinary = not is_return_path(call)
     groups: dict[tuple[str, ...], list[Card]] = defaultdict(list)
     for card in cards:
-        groups[tuple(sorted(set(card.evidence) & present))].append(card)
+        fields = set(card.evidence) & present
+        if ordinary and "incoming" in fields:
+            fields = (fields - {"incoming"}) | {"output"}
+        groups[tuple(sorted(fields))].append(card)
     results: dict[str, list[ChunkAnswer]] = {}
     for fields, group in groups.items():
-        asked = _chunked(call) if "output" in fields else [call]
+        seen = incoming_view(call) if "incoming" in fields else call
+        has_content = "output" in fields or "incoming" in fields
+        asked = _chunked(seen) if has_content else [seen]
         chunk_answers = [
             ChunkAnswer(c, *_ask(c, fields, group, backend, max_chars)) for c in asked
         ]
@@ -232,7 +265,7 @@ def _ask(
             result = backend.ask(evidence, questions)
             return result.answers, RequestInfo(was_truncated, result.input_tokens)
         except EvidenceTooLong:
-            if budget != max_chars or "output" not in evidence:
+            if budget != max_chars or content_key(call, fields) is None:
                 raise
     raise AssertionError("unreachable")
 

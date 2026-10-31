@@ -148,7 +148,7 @@ def test_import_writes_answers_and_implied_labels(tmp_path: Path) -> None:
     assert records["s2"]["labels"]["sec.effect"] == "delete"
     assert records["s2"]["labels"]["sec.data_class"] == "secrets"
     assert records["s2"]["sheet"] == "sheet.csv"
-    assert records["s2"]["taxonomy"] == "0.3.0"
+    assert records["s2"]["taxonomy"] == "0.3.1"
 
 
 @pytest.mark.parametrize(
@@ -257,7 +257,7 @@ def test_import_rejects_answers_where_questions_are_not_asked(tmp_path: Path) ->
     ) in problems
     # injection is gated on output, not basis.
     assert problems[-1] == (
-        "row 3 (a1), column injection: must be blank because the call has no output"
+        "row 3 (a1), column injection: must be blank because the call has no incoming content"
     )
 
 
@@ -267,7 +267,7 @@ def test_import_requires_injection_when_there_is_output(tmp_path: Path) -> None:
     with pytest.raises(SheetError) as e:
         import_sheet(sheet, [NAME_ONLY_OUTPUT], gold=tmp_path / "gold.jsonl")
     assert e.value.problems == [
-        "row 2 (w1), column injection: needed because the call has output"
+        "row 2 (w1), column injection: needed because the call has incoming content"
     ]
 
 
@@ -328,3 +328,35 @@ def test_cli_round_trip(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> N
     write_sheet(sheet, rows)
     assert cli.main(["import-sheet", str(sheet), *common]) == 0
     assert {r["span_id"] for r in read_gold(gold)} == {"s1", "s2"}
+
+
+def test_import_requires_injection_for_a_handback_message(tmp_path: Path) -> None:
+    # TAXONOMY 0.3.1: a return-path tool's content-carrying argument is incoming
+    # content, so a handback with a message is asked injection though it has no output.
+    hb = call("h1", tool_name="SubagentHandback", args={"message": "done"}, output=None)
+    sheet = tmp_path / "sheet.csv"
+    no_injection = {k: v for k, v in FULL.items() if k != "injection"}
+    write_sheet(sheet, [{"span_id": "h1", **no_injection}])
+    with pytest.raises(SheetError) as e:
+        import_sheet(sheet, [hb], gold=tmp_path / "gold.jsonl")
+    assert e.value.problems == [
+        "row 2 (h1), column injection: needed because the call has incoming content"
+    ]
+
+
+def test_import_rejects_injection_for_a_handback_without_message(
+    tmp_path: Path,
+) -> None:
+    hb = call("h2", tool_name="SubagentHandback", args={}, output=None)
+    sheet = tmp_path / "sheet.csv"
+    write_sheet(
+        sheet, [{"span_id": "h2", "effect": "none", **TRIFECTA, "injection": "no"}]
+    )
+    with pytest.raises(SheetError) as e:
+        import_sheet(sheet, [hb], gold=tmp_path / "gold.jsonl")
+    assert e.value.problems == [
+        (
+            "row 2 (h2), column injection: must be blank because the call has no"
+            " incoming content"
+        )
+    ]
