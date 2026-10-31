@@ -633,6 +633,57 @@ def test_hosted_screen_allows_ordinary_calls(overrides: dict[str, Any]) -> None:
     assert screen_for_hosted(call(**overrides)) is None
 
 
+LISTED_FAKE = "tallow_live_m5v7LArmeb0Q8wav8cDymhry1XJA7iq2"  # pragma: allowlist secret
+FAKES = frozenset({LISTED_FAKE})
+UNLISTED_PASSWORD = "Rk29vXq7LmPz4TsW"  # pragma: allowlist secret
+ENV_READ = {
+    "tool_name": "Read",
+    "args": {"file_path": "/workspace/app/.env"},
+    "output": f"APP_ENV=production\nTALLOW_SECRET_KEY={LISTED_FAKE}\n",
+}
+
+
+def test_a_listed_fake_passes_the_hosted_screen() -> None:
+    assert screen_for_hosted(call(**ENV_READ), FAKES) is None
+    # Without the list, the same call is refused as before.
+    assert screen_for_hosted(call(**ENV_READ)) == "args references a .env file"
+
+
+def test_an_unlisted_realistic_secret_is_still_refused() -> None:
+    db = "DATABASE_URL=postgres://billing:" + UNLISTED_PASSWORD + "@db:5432/billing"
+    unlisted = ENV_READ | {"output": ENV_READ["output"] + db + "\n"}
+    found = screen_for_hosted(call(**unlisted), FAKES)
+    assert (
+        found == "args references a .env file"
+    )  # the .env waiver needs no unlisted hit
+    alone = {
+        "args": {"command": f"export AWS_ACCESS_KEY_ID={FAKE_AWS_KEY}"},
+        "output": LISTED_FAKE,
+    }
+    found = screen_for_hosted(call(**alone), FAKES)
+    assert found is not None and "AWS Access Key" in found
+    assert UNLISTED_PASSWORD not in found and FAKE_AWS_KEY not in found
+
+
+def test_a_dot_env_call_without_output_is_still_refused() -> None:
+    no_output = ENV_READ | {"output": None}
+    assert screen_for_hosted(call(**no_output), FAKES) == "args references a .env file"
+
+
+def test_a_dot_env_output_without_a_listed_fake_is_still_refused() -> None:
+    other = ENV_READ | {"output": "APP_ENV=production\nLOG_LEVEL=info\n"}
+    assert screen_for_hosted(call(**other), FAKES) == "args references a .env file"
+
+
+def test_jev_backend_screens_with_the_fakes_list() -> None:
+    from spangloss.backends.typesafe import JevBackend
+
+    jev = JevBackend("jev", "jev-latest", client=None, fakes=FAKES)  # type: ignore[arg-type]
+    assert jev.screen(call(**ENV_READ)) is None
+    strict = JevBackend("jev", "jev-latest", client=None, fakes=frozenset())  # type: ignore[arg-type]
+    assert strict.screen(call(**ENV_READ)) is not None
+
+
 def test_refused_call_is_never_sent() -> None:
     backend = HostedFake()
     outcome = label_call(call(output="see .env for the key"), CARDS, backend)

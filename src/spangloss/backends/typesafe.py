@@ -27,6 +27,7 @@ from spangloss.backends.base import (
 )
 from spangloss.backends.safety import screen_for_hosted
 from spangloss.parse.record import ParsedToolCall
+from spangloss.scenarios.fakes import read_fakes
 
 KEV_URL = "http://127.0.0.1:8009"
 KEV_MODEL = "kev-latest"
@@ -79,10 +80,21 @@ class TypeSafeBackend:
 
 
 class JevBackend(TypeSafeBackend):
-    """Hosted: refuses calls that could carry secrets off the machine."""
+    """Hosted: refuses calls that could carry secrets off the machine, except the
+    listed scenario fakes (scenarios/FAKE_SECRETS.txt)."""
+
+    def __init__(
+        self,
+        name: str,
+        model: str,
+        client: TypeSafeClient,
+        fakes: frozenset[str] | None = None,
+    ) -> None:
+        super().__init__(name, model, client)
+        self._fakes = read_fakes() if fakes is None else fakes
 
     def screen(self, call: ParsedToolCall) -> str | None:
-        return screen_for_hosted(call)
+        return screen_for_hosted(call, self._fakes)
 
 
 def kev_backend(base_url: str = KEV_URL, model: str = KEV_MODEL) -> TypeSafeBackend:
