@@ -119,7 +119,7 @@ def import_sheet(
                     f" {', '.join(allowed)}"
                 )
         if span_id in known:
-            row_problems += _check_blanks(where, answers, cards, known[span_id])
+            row_problems += check_blanks(where, answers, cards, known[span_id])
         if row_problems:
             problems += row_problems
         else:
@@ -174,7 +174,7 @@ def _cell(text: str) -> str:
     return f"'{text}" if text.startswith(FORMULA_PREFIXES) else text
 
 
-def _check_blanks(
+def check_blanks(
     where: str, answers: dict[str, str], cards: list[Card], call: ParsedToolCall
 ) -> list[str]:
     """A cell is answered exactly when the labeler would ask its question.

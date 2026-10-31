@@ -18,6 +18,7 @@ from spangloss.eval import (
     format_report,
     import_sheet,
     read_gold,
+    restamp,
     score,
 )
 from spangloss.parse import ParsedToolCall, parse_claude_code
@@ -102,6 +103,17 @@ def main(argv: list[str] | None = None) -> int:
     score_cmd.add_argument("--db", type=Path, default=DEFAULT_DB)
     score_cmd.add_argument("--gold", type=Path, default=DEFAULT_GOLD)
 
+    gold_cmd = commands.add_parser("gold", help="Maintain the gold labels.")
+    gold_actions = gold_cmd.add_subparsers(dest="gold_command", required=True)
+    restamp_cmd = gold_actions.add_parser(
+        "restamp",
+        help="Move gold records to a new taxonomy version where no change affects"
+        " them; list the rest for review.",
+    )
+    restamp_cmd.add_argument("--to", required=True, help="target taxonomy version")
+    restamp_cmd.add_argument("--gold", type=Path, default=DEFAULT_GOLD)
+    restamp_cmd.add_argument("--input", type=Path, default=DEFAULT_OUTPUT)
+
     rules = commands.add_parser(
         "rules", help="Run the detection rules over stored labels."
     )
@@ -112,6 +124,8 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
+    if args.command == "gold":
+        return _restamp(args.gold, args.input, args.to)
     if args.command == "score":
         return _score(args.db, args.gold)
     if args.command == "rules":
@@ -182,6 +196,25 @@ def _score(db: Path, gold_path: Path) -> int:
     with LabelStore(db) as store:
         stored = store.stored_labels()
     print(format_report(score(gold, stored, load_cards()), len(gold)))
+    return 0
+
+
+def _restamp(gold: Path, calls: Path, to: str) -> int:
+    try:
+        result = restamp(gold, read_calls(calls), load_cards(), to)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(
+        f"{gold}: {result.restamped} restamped to {to}, {result.already} already {to},"
+        f" {len(result.affected)} affected (left unchanged),"
+        f" {result.other_versions} on versions with no restamp rules",
+        file=sys.stderr,
+    )
+    for a in result.affected:
+        print(f"  {a.span_id} {a.tool_name}:", file=sys.stderr)
+        for reason in a.reasons:
+            print(f"    - {reason}", file=sys.stderr)
     return 0
 
 
