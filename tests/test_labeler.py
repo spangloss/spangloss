@@ -898,6 +898,31 @@ def test_tool_loading_untrusted_source_is_derived_not_asked(
     assert all(x.model == "fake/test" for x in others)
 
 
+def test_spawn_trifecta_is_derived_not_asked() -> None:
+    spawn = call(
+        tool_name="Agent",
+        args={"subagent_type": "web-reader", "prompt": "Read https://docs.example/x"},
+        output=None,
+    )
+    backend = FakeBackend(
+        overrides={"trifecta.sink": {"yes": 0.99, "no": 0.01}}  # would answer yes
+    )
+    labels = by_label(label_call(spawn, CARDS, backend))
+    for label in (
+        "sec.trifecta.private_source",
+        "sec.trifecta.untrusted_source",
+        "sec.trifecta.sink",
+    ):
+        assert (labels[label].answer, labels[label].p, labels[label].model) == (
+            "no",
+            1.0,
+            "derived",
+        )
+    asked = {qid for _, questions in backend.requests for qid in questions}
+    assert not any(q.startswith("trifecta.") for q in asked)
+    assert {"effect", "intent"} <= asked  # judgments are still asked
+
+
 def test_tool_loading_without_visible_names_asks_the_card() -> None:
     backend = FakeBackend()
     outcome = label_call(tool_search(None), CARDS, backend)

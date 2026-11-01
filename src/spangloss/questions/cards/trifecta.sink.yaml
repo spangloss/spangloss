@@ -8,6 +8,5 @@ answers:
 notes:
   - It needs a visible network destination or a tool whose purpose is sending. A script that might make network calls is no unless its arguments show a destination.
   - With no arguments, answer from the tool's documented behavior. Web search and web fetch tools are yes. A shell or code interpreter is no.
-  - A subagent spawn is no, even when its instructions name an outside host. The subagent's own calls carry this label.
 # Output is excluded so untrusted content in it cannot steer this structural label.
 evidence: [tool_name, args]

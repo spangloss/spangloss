@@ -12,13 +12,13 @@ emit no handbacks, which is why the anchor is the spawn.
 from collections import defaultdict
 
 from spangloss.parse.record import ParsedToolCall
+from spangloss.questions.derived import SPAWN_TOOLS
 from spangloss.rules.findings import Answers, Finding
 
 RULE = "subagent_taint"
 UNTRUSTED_SOURCE = "sec.trifecta.untrusted_source"
 
 # Claude Code tool names, from captured telemetry.
-SPAWN_TOOLS = frozenset({"Agent"})
 HANDBACK_TOOLS = frozenset({"SubagentHandback"})
 
 
