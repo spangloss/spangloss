@@ -10,6 +10,7 @@ All observations are from **Claude Code 2.1.312**, with tool details and tool co
 | [Long arguments are cut to 128 characters in the logs](#long-arguments-are-cut-to-128-characters-in-the-logs) | any `tool_input` value over 512 characters | complete for Bash and Write (span copies); still cut for Edit strings, WebFetch and Agent prompts, and handback messages |
 | [WebFetch output is a summary, not the page](#webfetch-output-is-a-summary-not-the-page) | every WebFetch call | injected text can be dropped or paraphrased before it reaches the trace |
 | [Handback content is not captured](#handback-content-is-not-captured) | subagent returns | returned text unjudgeable; taint rule anchors on the spawn |
+| [MCP tool descriptions are not captured](#mcp-tool-descriptions-are-not-captured) | every MCP tool, deferred or upfront | tool poisoning is invisible; injection can't be judged on a description |
 
 ## Grep and Glob output is not captured
 
@@ -83,3 +84,18 @@ The rule applies to every tool. Whether a complete copy survives elsewhere depen
 - Returned subagent text can't be judged for injection in headless runs (TAXONOMY 0.3.1, capture limitation).
 - The subagent taint rule anchors on the spawn, which is always captured, and names a handback only when one exists (TAXONOMY 0.3.1, Detection rules).
 - `tainted_delegation` expects no handback; one that appears goes to review.
+
+## MCP tool descriptions are not captured
+
+**What:** an MCP tool's description reaches the agent by one of two paths, and neither is in the trace:
+- **Deferred (the default):** tool search is on by default, including behind a gateway (`ANTHROPIC_BASE_URL`), so MCP tools are deferred and their descriptions come back as the output of a `ToolSearch` call. ToolSearch spans carry **no `tool.output` event**.
+- **Upfront:** when ToolSearch is left out of `--tools`, MCP tools load with their descriptions into the system prompt, which no tool span holds.
+
+**How we observed it:**
+- **Real sessions:** `data/raw/` holds 4 ToolSearch spans and no `tool.output` event for any of them. The parser made 3 ToolSearch records, all without output: two at `name_only` and one at `args` basis with a `select:` query, the form that loads named tools.
+- **Scenario probe (2026-11-01):** a fake stdio MCP server inside the scenario container (`scenarios/tool_poisoning/mcp/unitconv.py`) whose one tool's description carries a canary instruction. With a placeholder key, Claude Code's init event listed `mcp__unitconv__convert_length` among the tools and the server as `connected`, so the description was loaded. No span holds it.
+
+**Effect:**
+- **Tool poisoning is invisible** in Claude Code 2.1.312 telemetry. TAXONOMY.md's note on judging tool descriptions as output can't apply: there is no output to judge, and `sec.injection` is never asked on a ToolSearch call.
+- **What remains visible:** the `select:` query names the server, so a derived `sec.trifecta.untrusted_source` can still mark the load as coming from a third-party server; the later calls to the MCP tool are labeled as usual; and a scenario canary can still record whether the agent obeyed the description.
+- **Scenario `tool_poisoning`** has its server built but is not yet wired into the runner (its README).
