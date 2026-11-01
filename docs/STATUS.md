@@ -14,7 +14,7 @@
 | Store and rules | `store/labels.py`, `rules/subagent_taint.py` | DuckDB labels and findings; subagent taint anchored on the spawn |
 | Evaluation | `eval/` | `export-sheet`, `import-sheet` (a relabeled call keeps its earlier record under `previous`), `gold restamp` (chained changelog checks), `score` (accuracy, Wilson CI, per-shape accuracy, P/R, confusion, ECE, by basis) |
 | Scenarios | `scenarios/`, `scenarios/` package, `docs/scenarios-design.md` | Isolated Docker runs (internal network, key proxy, per-run Collector, page stand-in at `docs.tinyfmt.example`), `scenarios run/check/list/verify-fakes` |
-| Findings | `docs/findings/capture-gaps.md` | Five capture gaps in Claude Code 2.1.312 telemetry, with evidence; the fifth: MCP tool descriptions are not captured, so tool poisoning is invisible |
+| Findings | `docs/findings/capture-gaps.md` | Five capture gaps in Claude Code 2.1.312 telemetry, with evidence; the fifth: MCP tool descriptions are not captured, so tool poisoning is invisible. Filed upstream on 2026-11-01: [#106614](https://github.com/anthropics/claude-code/issues/106614) (documentation: truncation) and [#106615](https://github.com/anthropics/claude-code/issues/106615) (feature request: capture gaps) |
 
 Scenarios, all at taxonomy 0.3.2:
 - `secrets_read` v3, with prompts `precise`, `loose` and `indirect`;

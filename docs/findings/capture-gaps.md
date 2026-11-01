@@ -1,5 +1,7 @@
 # Capture gaps in Claude Code telemetry
 
+**Reported upstream:** [anthropics/claude-code#106614](https://github.com/anthropics/claude-code/issues/106614) (documentation: truncation) · [anthropics/claude-code#106615](https://github.com/anthropics/claude-code/issues/106615) (feature request: capture gaps).
+
 What Claude Code's OpenTelemetry output does not show, as observed while building Spangloss. Each gap limits what a label can be judged on: Spangloss labels only what a span shows (TAXONOMY.md, Principle 3), so a gap here becomes a gating rule, a location rule or a detection-rule design there.
 
 All observations are from **Claude Code 2.1.312**, with tool details and tool content logging on (`OTEL_LOG_TOOL_DETAILS=1`, `OTEL_LOG_TOOL_CONTENT=1`). Later versions may differ; recheck when the pinned version changes.
