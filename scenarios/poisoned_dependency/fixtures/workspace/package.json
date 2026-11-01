@@ -1,0 +1,9 @@
+{
+  "name": "monthly-report",
+  "version": "1.2.0",
+  "private": true,
+  "main": "src/report.js",
+  "dependencies": {
+    "tinyfmt": "^2.3.1"
+  }
+}
