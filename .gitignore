@@ -247,3 +247,6 @@ data/labels*.duckdb*
 
 # Experiment outputs (labels of session calls)
 data/experiments/
+
+# macOS Finder metadata
+.DS_Store
