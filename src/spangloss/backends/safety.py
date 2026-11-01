@@ -5,13 +5,16 @@ of detect-secrets' pattern detectors. The two high-entropy detectors are left
 out: on their own they flag ordinary commands such as `ls -la /tmp/example`.
 Reasons name the detector only, never the matched text.
 
-The one exemption is the committed list of scenario fakes (scenarios/FAKE_SECRETS.txt,
-docs/scenarios-design.md section 8), compared as exact strings:
+The one exemption is by provenance: calls from a seeded-scenario run that verifies
+(scenarios/provenance.py: current scenario version, committed fixture hashes, the
+isolated network, only its own session's spans). For those calls:
 
-- a detect-secrets hit is ignored only when its matched value is a listed fake;
-- the .env rule, a path check, is waived only when the output is captured, holds
-  at least one listed fake, and has no unlisted hit. A .env call without output
-  is still refused, since nothing shows what the file holds.
+- the .env rule is skipped: a scenario .env holds only listed fakes;
+- a detect-secrets hit is still refused unless its matched value is on the committed
+  fakes list (scenarios/FAKE_SECRETS.txt), so anything unexpected stays local.
+
+Every other call, including every call from a real session, gets the strict screen
+with no exemption.
 """
 
 import json
@@ -35,11 +38,16 @@ PATTERN_PLUGINS = sorted(
 
 
 def screen_for_hosted(
-    call: ParsedToolCall, fakes: frozenset[str] = frozenset()
+    call: ParsedToolCall,
+    fakes: frozenset[str] = frozenset(),
+    scenario: bool = False,
 ) -> str | None:
     """Reason to keep this call off a hosted backend, or None if it may be sent.
 
-    fakes are the exact values exempt from screening; nothing else is exempt."""
+    scenario is True only for calls from a verified scenario run; fakes (the listed
+    fake values) are exempt only then. Real-session calls get the strict screen."""
+    if not scenario:
+        fakes = frozenset()
     sources = {
         "args": list(_strings(call.args)),
         "output": [call.output] if call.output is not None else [],
@@ -56,10 +64,8 @@ def screen_for_hosted(
                     if s.secret_value not in fakes
                 }
             )
-    shows_fake = call.output is not None and any(f in call.output for f in fakes)
-    env_waived = shows_fake and not any(unlisted.values())
     for where, texts in sources.items():
-        if not env_waived and any(ENV_FILE.search(t) for t in texts):
+        if not scenario and any(ENV_FILE.search(t) for t in texts):
             return f"{where} references a .env file"
     for where, found in unlisted.items():
         if found:

@@ -650,3 +650,53 @@ def test_a_compound_call_with_disagreeing_intents_goes_to_review() -> None:
             {"sec.effect": "delete", "sec.trifecta.sink": "yes"},
         ]
     ) == {"sec.effect": "delete", "sec.trifecta.sink": "yes"}
+
+
+# --- provenance --------------------------------------------------------------
+
+
+def write_run(root: Path, name: str, run: dict, calls: list[ParsedToolCall]) -> Path:
+    d = root / name
+    d.mkdir(parents=True)
+    (d / "run.json").write_text(json.dumps(run))
+    (d / "tool_calls.jsonl").write_text(
+        "".join(json.dumps(c.to_dict()) + "\n" for c in calls)
+    )
+    return d
+
+
+VERIFIED = {"network_check": {"internet": "blocked", "proxy_probe": "403"}}
+
+
+def test_a_run_on_the_committed_fixtures_is_verified(tmp_path: Path) -> None:
+    from spangloss.scenarios.provenance import verified_scenario_spans
+
+    c1 = call("c1", "Read", {"file_path": "/workspace/app/.env"}, ENV_TEXT)
+    write_run(tmp_path, "good", run_record("secrets_read") | VERIFIED, [c1])
+    assert verified_scenario_spans(tmp_path) == {"c1"}
+
+
+@pytest.mark.parametrize(
+    "spoil",
+    [
+        lambda r: r["pre_listing"]["app/.env"].update(sha256="0" * 64),  # fixture
+        lambda r: r.update(network_check={"internet": "reachable"}),  # network
+        lambda r: r.update(version=1),  # older scenario version
+        lambda r: r.update(session_id="someone-else"),  # spans from another session
+        lambda r: r.pop("network_check"),  # no record of the check
+    ],
+)
+def test_a_run_that_does_not_verify_is_not_exempt(tmp_path: Path, spoil) -> None:
+    from spangloss.scenarios.provenance import verified_scenario_spans
+
+    run = json.loads(json.dumps(run_record("secrets_read") | VERIFIED))
+    spoil(run)
+    c1 = call("c1", "Read", {"file_path": "/workspace/app/.env"}, ENV_TEXT)
+    write_run(tmp_path, "bad", run, [c1])
+    assert verified_scenario_spans(tmp_path) == frozenset()
+
+
+def test_no_runs_means_no_exemptions(tmp_path: Path) -> None:
+    from spangloss.scenarios.provenance import verified_scenario_spans
+
+    assert verified_scenario_spans(tmp_path / "missing") == frozenset()

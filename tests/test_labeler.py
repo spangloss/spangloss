@@ -643,45 +643,45 @@ ENV_READ = {
 }
 
 
-def test_a_listed_fake_passes_the_hosted_screen() -> None:
-    assert screen_for_hosted(call(**ENV_READ), FAKES) is None
-    # Without the list, the same call is refused as before.
-    assert screen_for_hosted(call(**ENV_READ)) == "args references a .env file"
+def test_a_real_session_gets_the_strict_screen_even_for_a_listed_fake() -> None:
+    assert screen_for_hosted(call(**ENV_READ), FAKES) == "args references a .env file"
 
 
-def test_an_unlisted_realistic_secret_is_still_refused() -> None:
+def test_a_verified_scenario_call_passes_with_listed_fakes() -> None:
+    assert screen_for_hosted(call(**ENV_READ), FAKES, scenario=True) is None
+    # A Grep on .env has no captured output; by provenance it may still be sent.
+    grep = {
+        "tool_name": "Grep",
+        "args": {"pattern": "^[A-Z_]+=", "path": "app/.env"},
+        "output": None,
+    }
+    assert screen_for_hosted(call(**grep), FAKES, scenario=True) is None
+
+
+def test_an_unlisted_realistic_secret_is_refused_even_in_a_scenario() -> None:
     db = "DATABASE_URL=postgres://billing:" + UNLISTED_PASSWORD + "@db:5432/billing"
     unlisted = ENV_READ | {"output": ENV_READ["output"] + db + "\n"}
-    found = screen_for_hosted(call(**unlisted), FAKES)
-    assert (
-        found == "args references a .env file"
-    )  # the .env waiver needs no unlisted hit
-    alone = {
-        "args": {"command": f"export AWS_ACCESS_KEY_ID={FAKE_AWS_KEY}"},
-        "output": LISTED_FAKE,
-    }
-    found = screen_for_hosted(call(**alone), FAKES)
+    found = screen_for_hosted(call(**unlisted), FAKES, scenario=True)
+    assert found == "output matches detect-secrets: Basic Auth Credentials"
+    alone = {"args": {"command": f"export AWS_ACCESS_KEY_ID={FAKE_AWS_KEY}"}}
+    found = screen_for_hosted(call(**alone), FAKES, scenario=True)
     assert found is not None and "AWS Access Key" in found
     assert UNLISTED_PASSWORD not in found and FAKE_AWS_KEY not in found
 
 
-def test_a_dot_env_call_without_output_is_still_refused() -> None:
-    no_output = ENV_READ | {"output": None}
-    assert screen_for_hosted(call(**no_output), FAKES) == "args references a .env file"
-
-
-def test_a_dot_env_output_without_a_listed_fake_is_still_refused() -> None:
-    other = ENV_READ | {"output": "APP_ENV=production\nLOG_LEVEL=info\n"}
-    assert screen_for_hosted(call(**other), FAKES) == "args references a .env file"
-
-
-def test_jev_backend_screens_with_the_fakes_list() -> None:
+def test_jev_backend_exempts_only_verified_scenario_spans() -> None:
     from spangloss.backends.typesafe import JevBackend
 
-    jev = JevBackend("jev", "jev-latest", client=None, fakes=FAKES)  # type: ignore[arg-type]
-    assert jev.screen(call(**ENV_READ)) is None
-    strict = JevBackend("jev", "jev-latest", client=None, fakes=frozenset())  # type: ignore[arg-type]
-    assert strict.screen(call(**ENV_READ)) is not None
+    jev = JevBackend(
+        "jev",
+        "jev-latest",
+        client=None,  # type: ignore[arg-type]
+        fakes=FAKES,
+        scenario_spans=frozenset({"s000000000000001"}),
+    )
+    assert jev.screen(call(**ENV_READ)) is None  # the default span id is verified
+    other = call(**ENV_READ | {"span_id": "s000000000000099"})
+    assert jev.screen(other) == "args references a .env file"
 
 
 def test_refused_call_is_never_sent() -> None:
