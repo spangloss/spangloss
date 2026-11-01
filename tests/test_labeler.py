@@ -122,7 +122,7 @@ def test_real_cards_load_and_validate() -> None:
     kinds = {c.name: c.kind for c in CARDS}
     assert kinds["effect"] == "choice"
     assert kinds["trifecta.sink"] == "noul"
-    assert {c.taxonomy for c in CARDS} == {"0.3.1"}
+    assert {c.taxonomy for c in CARDS} == {"0.3.2"}
 
 
 CARD_HEAD = "label: sec.x\ntaxonomy: 0.3.1\nquestion: Q?\n"
@@ -390,7 +390,7 @@ def test_labels_carry_provenance() -> None:
             "session-1",
             "content",
         )
-        assert (x.model, x.taxonomy) == ("fake/test", "0.3.1")
+        assert (x.model, x.taxonomy) == ("fake/test", "0.3.2")
 
 
 def test_labels_record_their_own_requests_tokens() -> None:
@@ -803,7 +803,7 @@ def test_store_replaces_rows_for_the_same_call_label_and_model(tmp_path: Path) -
         assert store.labeled_span_ids("other/model") == set()
         effect = next(r for r in rows if r[2] == "sec.effect")
         assert effect[:2] == ("s000000000000001", "session-1")
-        assert effect[5:9] == ("content", "fake/test", "0.3.1", False)
+        assert effect[5:9] == ("content", "fake/test", "0.3.2", False)
         assert effect[9] == by_label(outcome)["sec.effect"].input_tokens
 
 
@@ -890,7 +890,7 @@ def test_tool_loading_untrusted_source_is_derived_not_asked(
     untrusted = by_label(outcome)["sec.trifecta.untrusted_source"]
     assert (untrusted.answer, untrusted.p, untrusted.model) == (answer, 1.0, "derived")
     assert (untrusted.chunks, untrusted.input_tokens) == (0, None)
-    assert untrusted.taxonomy == "0.3.1"
+    assert untrusted.taxonomy == "0.3.2"
     asked = {qid for _, questions in backend.requests for qid in questions}
     assert "trifecta.untrusted_source" not in asked
     assert "trifecta.sink" in asked  # only the derived label is skipped

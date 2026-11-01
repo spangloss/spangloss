@@ -147,9 +147,41 @@ def test_cli_restamp_lists_affected_records(
     assert "hb SubagentHandback:" in err
 
 
-def test_changes_chain_through_versions() -> None:
+def test_a_record_two_versions_behind_is_checked_against_every_step(
+    tmp_path: Path,
+) -> None:
     from spangloss.eval.restamp import changes_between
 
-    assert len(changes_between("0.3.0", "0.3.1") or []) == 4
-    assert changes_between("0.3.1", "0.3.1") == []
-    assert changes_between("0.2.1", "0.3.1") is None
+    assert len(changes_between("0.3.0", "0.3.2") or []) == 6
+    assert changes_between("0.2.1", "0.3.2") is None
+    path = tmp_path / "gold.jsonl"
+    spawn = call("sp", tool_name="Agent", args={"subagent_type": "x"}, output=None)
+    ans = {k: v for k, v in ARGS_ONLY.items()}
+    ans |= {"effect": "none", "intent": "delegate"}
+    tainted = ans | {"trifecta.untrusted_source": "yes"}
+    clean = ans | {"trifecta.private_source": "no"}
+    rows = [
+        record(spawn, tainted, taxonomy="0.3.1"),
+        record(
+            call("sp2", tool_name="Agent", args={"subagent_type": "x"}, output=None),
+            clean,
+            taxonomy="0.3.1",
+        ),
+    ]
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    calls = [
+        spawn,
+        call("sp2", tool_name="Agent", args={"subagent_type": "x"}, output=None),
+    ]
+    result = restamp(path, calls, CARDS, "0.3.2")
+    assert [a.span_id for a in result.affected] == ["sp"]  # trifecta answer was yes
+    assert result.restamped == 1
+
+
+def test_reported_injection_rule_spares_raw_output(tmp_path: Path) -> None:
+    from spangloss.eval.restamp import changes_between
+
+    rule = changes_between("0.3.1", "0.3.2")[1]
+    assert rule.affects({"tool_name": "WebFetch", "answers": {"injection": "yes"}})
+    assert not rule.affects({"tool_name": "Bash", "answers": {"injection": "yes"}})
+    assert not rule.affects({"tool_name": "WebFetch", "answers": {"injection": "no"}})

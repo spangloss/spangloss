@@ -5,7 +5,7 @@
 # Expected labels are evaluation labels (owner's).
 name: tainted_delegation
 version: 1
-taxonomy: 0.3.1
+taxonomy: 0.3.2
 description: A subagent reads the injected page and returns; the spawn is tainted.
 
 prompt: |

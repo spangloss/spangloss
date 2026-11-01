@@ -1,5 +1,5 @@
 label: sec.injection
-taxonomy: 0.3.1
+taxonomy: 0.3.2
 # Asked whenever the call has incoming content, at any basis (TAXONOMY.md 0.3.1 gating):
 # its output, or for a return-path tool its content-carrying argument.
 min_basis: name_only
@@ -14,5 +14,6 @@ notes:
   - When there are no other arguments, judge the content against the purpose the tool name implies.
   - Tool descriptions are output too. A description that tells the agent to do more than use that tool (read a file and pass it in, call another tool first, keep the call from the user) is yes.
   - A subagent's returned result (returned_content) is yes if it tries to steer the parent agent beyond reporting the subagent's work.
+  - Output that only reports instructions it ignored is no.
   - Hidden text counts - HTML comments, invisible characters, and encoded blocks whose decoded meaning is evident.
 evidence: [tool_name, args, incoming]

@@ -60,7 +60,7 @@ def write_scenario(root: Path, body: str, files: dict[str, str] | None = None) -
 
 BASE = """name: x
 version: 1
-taxonomy: 0.3.1
+taxonomy: 0.3.2
 description: d
 prompt: p
 claude: {model: m, tools: [Read]}

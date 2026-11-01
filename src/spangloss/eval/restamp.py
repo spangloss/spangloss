@@ -24,6 +24,7 @@ from spangloss.eval.sheet import check_blanks, read_gold
 from spangloss.parse.record import ParsedToolCall
 from spangloss.questions.cards import Card
 from spangloss.questions.incoming import RETURN_PATH_ARGS
+from spangloss.rules.subagent_taint import SPAWN_TOOLS
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +58,33 @@ CHANGES: dict[tuple[str, str], list[Change]] = {
             lambda r: False,
         ),
     ],
+    ("0.3.1", "0.3.2"): [
+        Change(
+            "a subagent spawn is no for all three trifecta questions; an Agent"
+            " record is affected only if some trifecta answer isn't already no",
+            lambda r: (
+                r["tool_name"] in SPAWN_TOOLS
+                and any(
+                    v != "no"
+                    for k, v in r["answers"].items()
+                    if k.startswith("trifecta.")
+                )
+            ),
+        ),
+        Change(
+            "output that only reports instructions it ignored is injection no;"
+            " affects injection yes on tools whose output a model writes",
+            lambda r: (
+                r["answers"].get("injection") == "yes"
+                and r["tool_name"] in MODEL_WRITTEN_OUTPUT
+            ),
+        ),
+    ],
 }
+
+# Tools whose captured output is written by a model (a summary or a report), so it
+# can be a report of ignored instructions. Raw output, such as curl's, can't be.
+MODEL_WRITTEN_OUTPUT = frozenset({"WebFetch", "Agent", "SubagentHandback"})
 
 
 def changes_between(source: str, to: str) -> list[Change] | None:

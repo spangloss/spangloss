@@ -148,7 +148,7 @@ def test_import_writes_answers_and_implied_labels(tmp_path: Path) -> None:
     assert records["s2"]["labels"]["sec.effect"] == "delete"
     assert records["s2"]["labels"]["sec.data_class"] == "secrets"
     assert records["s2"]["sheet"] == "sheet.csv"
-    assert records["s2"]["taxonomy"] == "0.3.1"
+    assert records["s2"]["taxonomy"] == "0.3.2"
 
 
 @pytest.mark.parametrize(
