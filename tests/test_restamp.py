@@ -11,6 +11,7 @@ from spangloss.parse.record import basis_for
 from spangloss.questions import load_cards
 
 CARDS = load_cards()
+TO = CARDS[0].taxonomy  # restamp targets the cards' version
 
 # Every question the 0.3.1 cards ask for a Bash call with args and output.
 FULL = {
@@ -79,7 +80,7 @@ def gold(tmp_path: Path) -> Path:
         record(HANDBACK, ARGS_ONLY),
         # Answered injection though the call has no incoming content.
         record(NO_OUTPUT, FULL),
-        record(DONE, FULL, taxonomy="0.3.1"),
+        record(DONE, FULL, taxonomy=TO),
         record(call("gone"), FULL),  # not in the parsed calls
     ]
     path.write_text("".join(json.dumps(r) + "\n" for r in rows))
@@ -87,10 +88,10 @@ def gold(tmp_path: Path) -> Path:
 
 
 def test_unaffected_records_are_restamped_with_provenance(gold: Path) -> None:
-    result = restamp(gold, CALLS, CARDS, "0.3.1")
+    result = restamp(gold, CALLS, CARDS, TO)
     assert (result.restamped, result.already) == (1, 1)
     bash = next(r for r in read_gold(gold) if r["span_id"] == "bash")
-    assert bash["taxonomy"] == "0.3.1"
+    assert bash["taxonomy"] == TO
     assert bash["restamped_from"] == "0.3.0"
     assert "changelog checks" in bash["restamp_reason"]
     assert bash["answers"] == FULL  # unchanged
@@ -99,7 +100,7 @@ def test_unaffected_records_are_restamped_with_provenance(gold: Path) -> None:
 
 def test_affected_records_are_listed_and_left_alone(gold: Path) -> None:
     before = {r["span_id"]: r for r in read_gold(gold)}
-    result = restamp(gold, CALLS, CARDS, "0.3.1")
+    result = restamp(gold, CALLS, CARDS, TO)
     affected = {a.span_id: a for a in result.affected}
     assert set(affected) == {"hb", "nout", "gone"}
     assert any("return-path" in r for r in affected["hb"].reasons)
@@ -116,20 +117,20 @@ def test_affected_records_are_listed_and_left_alone(gold: Path) -> None:
 
 
 def test_already_current_records_are_untouched(gold: Path) -> None:
-    restamp(gold, CALLS, CARDS, "0.3.1")
+    restamp(gold, CALLS, CARDS, TO)
     done = next(r for r in read_gold(gold) if r["span_id"] == "done")
     assert "restamped_from" not in done
 
 
 def test_target_must_match_the_cards(gold: Path) -> None:
-    with pytest.raises(ValueError, match="cards are at 0.3.1"):
+    with pytest.raises(ValueError, match=f"cards are at {TO}"):
         restamp(gold, CALLS, CARDS, "0.4.0")
 
 
 def test_versions_without_rules_are_counted_not_restamped(tmp_path: Path) -> None:
     path = tmp_path / "gold.jsonl"
     path.write_text(json.dumps(record(BASH, FULL, taxonomy="0.2.1")) + "\n")
-    result = restamp(path, CALLS, CARDS, "0.3.1")
+    result = restamp(path, CALLS, CARDS, TO)
     assert (result.restamped, result.other_versions) == (0, 1)
     assert read_gold(path)[0]["taxonomy"] == "0.2.1"
 
@@ -139,8 +140,16 @@ def test_cli_restamp_lists_affected_records(
 ) -> None:
     parsed = tmp_path / "tool_calls.jsonl"
     parsed.write_text("".join(json.dumps(c.to_dict()) + "\n" for c in CALLS))
-    args = ["gold", "restamp", "--to", "0.3.1", "--gold", str(gold)]
+    args = ["gold", "restamp", "--to", TO, "--gold", str(gold)]
     assert cli.main([*args, "--input", str(parsed)]) == 0
     err = capsys.readouterr().err
-    assert "1 restamped to 0.3.1, 1 already 0.3.1, 3 affected" in err
+    assert f"1 restamped to {TO}, 1 already {TO}, 3 affected" in err
     assert "hb SubagentHandback:" in err
+
+
+def test_changes_chain_through_versions() -> None:
+    from spangloss.eval.restamp import changes_between
+
+    assert len(changes_between("0.3.0", "0.3.1") or []) == 4
+    assert changes_between("0.3.1", "0.3.1") == []
+    assert changes_between("0.2.1", "0.3.1") is None

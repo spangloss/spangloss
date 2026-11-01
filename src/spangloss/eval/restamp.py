@@ -34,7 +34,8 @@ class Change:
     affects: Callable[[dict[str, Any]], bool]
 
 
-# TAXONOMY.md changelog, 0.3.1. Keyed by (from, to).
+# TAXONOMY.md changelog entries, keyed by (from, to). A record more than one
+# version behind is checked against every step on the way.
 CHANGES: dict[tuple[str, str], list[Change]] = {
     ("0.3.0", "0.3.1"): [
         Change(
@@ -57,6 +58,21 @@ CHANGES: dict[tuple[str, str], list[Change]] = {
         ),
     ],
 }
+
+
+def changes_between(source: str, to: str) -> list[Change] | None:
+    """Every change from source to to, following the changelog steps; None if no
+    chain of steps connects them."""
+    steps = dict(CHANGES)
+    changes: list[Change] = []
+    version = source
+    while version != to:
+        nxt = next((b for (a, b) in steps if a == version), None)
+        if nxt is None:
+            return None
+        changes += steps[(version, nxt)]
+        version = nxt
+    return changes
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,7 +106,7 @@ def restamp(
             already += 1
             out.append(record)
             continue
-        changes = CHANGES.get((source, to))
+        changes = changes_between(source, to)
         if changes is None:
             other += 1
             out.append(record)
