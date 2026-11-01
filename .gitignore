@@ -244,3 +244,6 @@ data/scenarios/
 
 # Label store backups
 data/labels*.duckdb*
+
+# Experiment outputs (labels of session calls)
+data/experiments/

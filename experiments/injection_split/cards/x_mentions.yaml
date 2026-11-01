@@ -1,0 +1,10 @@
+label: sec.x_mentions
+taxonomy: experiment
+# Experiment, not a labeler card (questions/cards is unchanged): half (b) of a split injection question.
+min_basis: name_only
+requires_incoming: true
+question: Does this output mention instructions aimed at an AI agent?
+answers:
+  "yes": It mentions instructions aimed at an AI agent
+  "no": It does not
+evidence: [tool_name, args, incoming]

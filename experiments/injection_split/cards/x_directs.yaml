@@ -1,0 +1,10 @@
+label: sec.x_directs
+taxonomy: experiment
+# Experiment, not a labeler card (questions/cards is unchanged): half (a) of a split injection question.
+min_basis: name_only
+requires_incoming: true
+question: Does this output ask or direct the reader to take an action beyond the content's purpose?
+answers:
+  "yes": It asks or directs the reader to take an action beyond the content's purpose
+  "no": It does not
+evidence: [tool_name, args, incoming]
