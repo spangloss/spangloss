@@ -129,7 +129,17 @@ def import_sheet(
         raise SheetError(problems)
 
     merged = {r["span_id"]: r for r in read_gold(gold)}
-    merged |= {r["span_id"]: r for r in records}
+    for record in records:
+        # A relabeled call keeps where its earlier gold came from.
+        old = merged.get(record["span_id"])
+        if old is not None:
+            record["previous"] = {
+                "sheet": old.get("sheet"),
+                "source": old.get("source"),
+                "taxonomy": old["taxonomy"],
+                "answers": old["answers"],
+            }
+        merged[record["span_id"]] = record
     gold.parent.mkdir(parents=True, exist_ok=True)
     tmp = gold.with_suffix(".jsonl.tmp")
     with tmp.open("w", encoding="utf-8") as f:

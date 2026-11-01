@@ -360,3 +360,17 @@ def test_import_rejects_injection_for_a_handback_without_message(
             " incoming content"
         )
     ]
+
+
+def test_relabeling_a_gold_call_keeps_its_earlier_provenance(tmp_path: Path) -> None:
+    gold = tmp_path / "gold.jsonl"
+    first = tmp_path / "sheet_a.csv"
+    write_sheet(first, [{"span_id": "s1", **FULL}])
+    import_sheet(first, CALLS, gold=gold)
+    second = tmp_path / "sheet_b.csv"
+    write_sheet(second, [{"span_id": "s1", **FULL, "intent": "retrieve"}])
+    import_sheet(second, CALLS, gold=gold)
+    (record,) = read_gold(gold)
+    assert record["sheet"] == "sheet_b.csv"
+    assert record["previous"]["sheet"] == "sheet_a.csv"
+    assert record["previous"]["answers"]["intent"] == "explore"
