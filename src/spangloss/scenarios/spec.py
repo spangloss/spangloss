@@ -35,6 +35,20 @@ class Fixture:
 class Prompt:
     id: str
     text: str
+    tools: tuple[str, ...] | None = None  # this variant's --tools, if not claude.tools
+
+
+@dataclass(frozen=True, slots=True)
+class McpServer:
+    """A stdio MCP server the runner starts inside the agent container."""
+
+    name: str
+    script: Path  # a Python file in the scenario directory, run with python3
+    tools: tuple[str, ...]  # the tools it offers, without the mcp__<server>__ prefix
+
+    @property
+    def tool_names(self) -> tuple[str, ...]:
+        return tuple(f"mcp__{self.name}__{t}" for t in self.tools)
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +115,12 @@ class Scenario:
     site: Path | None  # pages served at the scenario pages host, if any
     canary_token: str | None
     publishable: bool
+    mcp_servers: dict[str, McpServer] = field(default_factory=dict)
+
+    def tools_for(self, prompt_id: str) -> tuple[str, ...]:
+        """The --tools for a prompt variant: its own list, or the scenario's."""
+        tools = self.prompt(prompt_id).tools
+        return self.claude.tools if tools is None else tools
 
     def prompt(self, prompt_id: str) -> Prompt:
         for p in self.prompts:
@@ -183,6 +203,7 @@ def load_scenario(name: str, root: Path = SCENARIOS_DIR) -> Scenario:
         site=site_path,
         canary_token=raw.get("canary_token"),
         publishable=bool(raw.get("publishable", True)),
+        mcp_servers=_mcp_servers(raw.get("mcp_servers"), directory, where),
     )
 
 
@@ -221,12 +242,46 @@ def _prompts(raw: dict[str, Any], where: str) -> tuple[Prompt, ...]:
     if not isinstance(items, list) or not items:
         raise ScenarioError(f"{where}: prompts must be a non-empty list")
     prompts = tuple(
-        Prompt(_str(p, "id", where), _str(p, "text", where).strip()) for p in items
+        Prompt(
+            _str(p, "id", where),
+            _str(p, "text", where).strip(),
+            _tools(p, where) if "tools" in p else None,
+        )
+        for p in items
     )
     ids = [p.id for p in prompts]
     if len(ids) != len(set(ids)) or not all(NAME.match(i) for i in ids):
         raise ScenarioError(f"{where}: prompt ids must be unique lowercase names")
     return prompts
+
+
+def _tools(raw: dict[str, Any], where: str) -> tuple[str, ...]:
+    tools = raw.get("tools")
+    if not isinstance(tools, list) or not all(isinstance(t, str) for t in tools):
+        raise ScenarioError(f"{where}: tools must be a list of tool names")
+    return tuple(tools)
+
+
+def _mcp_servers(raw: Any, directory: Path, where: str) -> dict[str, McpServer]:
+    """mcp_servers: {<name>: {script: <path in the scenario dir>, tools: [...]}}."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ScenarioError(f"{where}: mcp_servers must be a mapping")
+    servers = {}
+    for name, spec in raw.items():
+        if not isinstance(name, str) or not NAME.match(name):
+            raise ScenarioError(f"{where}: MCP server names must be lowercase names")
+        if not isinstance(spec, dict):
+            raise ScenarioError(f"{where}: MCP server {name!r} must be a mapping")
+        script = directory / _str(spec, "script", where)
+        if script.suffix != ".py" or not script.is_file():
+            raise ScenarioError(f"{where}: MCP server {name!r} has no script {script}")
+        tools = _tools(spec, where)
+        if not tools:
+            raise ScenarioError(f"{where}: MCP server {name!r} lists no tools")
+        servers[name] = McpServer(name, script, tools)
+    return servers
 
 
 def _match(raw: Any, fixtures: dict[str, Fixture], where: str) -> Match:

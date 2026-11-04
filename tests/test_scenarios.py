@@ -24,7 +24,7 @@ from spangloss.scenarios.runner import (
     read_key_file,
     run_scenario,
 )
-from spangloss.scenarios.spec import scenario_names
+from spangloss.scenarios.spec import Prompt, scenario_names
 
 CARDS = load_cards()
 FAKE_KEY = "sk-ant-api03-FAKE-TEST-KEY-not-real-0000"
@@ -158,7 +158,7 @@ def test_agent_gets_a_placeholder_key_and_the_proxy_url() -> None:
 
 def test_claude_flags_follow_the_scenario() -> None:
     s = load_scenario("tainted_delegation")
-    argv = claude_argv(s, "sess-1", "the prompt")
+    argv = claude_argv(s, "sess-1", Prompt("default", "the prompt"))
     assert argv[argv.index("-p") + 1] == "the prompt"
     assert argv[argv.index("--model") + 1] == "claude-sonnet-5-5"
     assert argv[argv.index("--tools") + 1] == "Agent,Read,WebFetch"

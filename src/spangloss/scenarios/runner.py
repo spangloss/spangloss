@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from spangloss.parse import parse_claude_code
-from spangloss.scenarios.spec import SCENARIOS_DIR, Scenario
+from spangloss.scenarios.spec import SCENARIOS_DIR, Prompt, Scenario
 
 CLAUDE_CODE_VERSION = "2.1.312"
 AGENT_IMAGE = f"spangloss-scenarios:{CLAUDE_CODE_VERSION}"
@@ -46,6 +46,7 @@ PLACEHOLDER_KEY = "placeholder-the-proxy-adds-the-real-key"
 PROXY_HOST = "anthropic-proxy"
 PAGES_HOST = "docs.tinyfmt.example"
 RUNS_DIR = Path("data/scenarios/runs")
+MCP_CONFIG = "/scenario-cfg/mcp.json"
 CANARY_FILE = "spangloss-canary.txt"
 # Before the session, the runner checks from the agent image that the internet is
 # unreachable and that the proxy refuses a path it doesn't allow (section 4).
@@ -117,16 +118,16 @@ class Names:
         return f"sg-{self.run_id}-{part}".lower()
 
 
-def claude_argv(scenario: Scenario, session_id: str, prompt: str) -> list[str]:
+def claude_argv(scenario: Scenario, session_id: str, prompt: Prompt) -> list[str]:
     c = scenario.claude
     argv = [
         "claude",
         "-p",
-        prompt,
+        prompt.text,
         "--model",
         c.model,
         "--tools",
-        ",".join(c.tools),
+        ",".join(scenario.tools_for(prompt.id)),
         "--permission-mode",
         c.permission_mode,
         "--permission-prompts",
@@ -151,7 +152,25 @@ def claude_argv(scenario: Scenario, session_id: str, prompt: str) -> list[str]:
         argv += ["--disallowedTools", ",".join(c.disallowed_tools)]
     if c.agents:
         argv += ["--agents", json.dumps(c.agents, separators=(",", ":"))]
+    if scenario.mcp_servers:
+        # With --strict-mcp-config, these are the only MCP servers that load.
+        argv += ["--mcp-config", MCP_CONFIG]
     return argv
+
+
+def mcp_config(scenario: Scenario) -> dict[str, Any]:
+    """The --mcp-config file: each server's script, copied into the config volume,
+    run over stdio with no network of its own beyond the agent container's."""
+    return {
+        "mcpServers": {
+            name: {
+                "type": "stdio",
+                "command": "python3",
+                "args": [f"/scenario-cfg/mcp/{name}.py"],
+            }
+            for name in sorted(scenario.mcp_servers)
+        }
+    }
 
 
 def agent_env(scenario: Scenario, run_id: str) -> dict[str, str]:
@@ -317,7 +336,7 @@ def run_scenario(
         if network_check != {"internet": "blocked", "proxy_probe": "403"}:
             raise RunnerError(f"network isolation check failed: {network_check}")
 
-        argv = claude_argv(scenario, session_id, prompt.text)
+        argv = claude_argv(scenario, session_id, prompt)
         result = docker(
             *agent_run_argv(names, agent_env(scenario, run_id), argv), check=False
         )
@@ -416,6 +435,10 @@ def _fill_cfg(docker: Docker, names: Names, scenario: Scenario) -> None:
     }
     if scenario.site is not None:
         files |= _tree(scenario.site, "site/")
+    for name, server in scenario.mcp_servers.items():
+        files[f"mcp/{name}.py"] = server.script.read_bytes()
+    if scenario.mcp_servers:
+        files["mcp.json"] = json.dumps(mcp_config(scenario), indent=2).encode()
     _untar_into(docker, names.cfg, files)
     if scenario.site is not None:
         # A throwaway certificate for the local pages stand-in, valid for two days.
@@ -512,6 +535,10 @@ def _read_stream(path: Path) -> dict[str, Any]:
                 "agents": event.get("agents"),
                 "plugins": [p.get("name") for p in event.get("plugins") or []],
                 "mcp_servers": [s.get("name") for s in event.get("mcp_servers") or []],
+                "mcp_server_status": {
+                    s.get("name"): s.get("status")
+                    for s in event.get("mcp_servers") or []
+                },
                 "permission_mode_reported": event.get("permissionMode"),
                 "claude_code_version": event.get("claude_code_version"),
             }

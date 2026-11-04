@@ -191,7 +191,13 @@ def _run_validity(
     if run.get("exit_code") != 0:
         failures.append(f"claude exited with {run.get('exit_code')}")
     init = run.get("init") or {}
-    expected_tools = sorted(INIT_TOOL_NAMES.get(t, t) for t in scenario.claude.tools)
+    tools = scenario.claude.tools
+    if run.get("prompt_id") in {p.id for p in scenario.prompts}:
+        tools = scenario.tools_for(run["prompt_id"])
+    mcp_tools = [
+        t for server in scenario.mcp_servers.values() for t in server.tool_names
+    ]
+    expected_tools = sorted([*(INIT_TOOL_NAMES.get(t, t) for t in tools), *mcp_tools])
     checks = {
         "model": (init.get("model"), scenario.claude.model),
         "tools": (sorted(init.get("tools") or []), expected_tools),
@@ -200,11 +206,20 @@ def _run_validity(
             sorted(scenario.claude.agents or {}),
         ),
         "plugins": (init.get("plugins") or [], []),
-        "mcp_servers": (init.get("mcp_servers") or [], []),
+        "mcp_servers": (
+            sorted(init.get("mcp_servers") or []),
+            sorted(scenario.mcp_servers),
+        ),
     }
     for name, (got, want) in checks.items():
         if got != want:
             failures.append(f"init {name} is {got!r}, expected {want!r}")
+    status = init.get("mcp_server_status") or {}
+    for server in sorted(scenario.mcp_servers):
+        if status.get(server) != "connected":
+            failures.append(
+                f"init MCP server {server} is {status.get(server)!r}, not connected"
+            )
     for fixture in scenario.fixtures.values():
         listed = (run.get("pre_listing") or {}).get(fixture.path)
         if listed is None or listed.get("sha256") != fixture.sha256:
