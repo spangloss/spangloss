@@ -1,7 +1,10 @@
 # Copy to spangloss.toml (git-ignored) and edit.
 
 [mcp]
-# MCP servers you wrote or control, by the <server> part of mcp__<server>__<tool>.
-# Their tool descriptions count as first-party, like built-in tools. Descriptions
-# from any other server are third-party: sec.trifecta.untrusted_source = yes.
+# MCP servers you wrote or control, by the <server> part of mcp__<server>__<tool>:
+# an allowlist, empty by default. For every other server, Spangloss derives
+# sec.trifecta.untrusted_source = yes, without asking a model, both for loading its
+# tool descriptions (ToolSearch select:) and for every call to its tools. For a
+# listed server, descriptions count as first-party (no), and calls to its tools are
+# judged by the labeler, since your own server may still relay outside content.
 first_party_servers = ["my-notes-server"]

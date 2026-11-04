@@ -109,7 +109,7 @@ def label_call(
         _derived(call, card, answer)
         for label, answer in derived_answers(call, first_party_mcp_servers).items()
         for card in cards
-        if card.label == label
+        if card.label == label and card.applies_to(call.basis, has_incoming(call))
     ]
     decided = {x.label for x in derived}
     first_round = [

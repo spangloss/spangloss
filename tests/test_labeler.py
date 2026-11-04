@@ -893,9 +893,9 @@ def test_tool_loading_untrusted_source_is_derived_not_asked(
     assert untrusted.taxonomy == "0.3.2"
     asked = {qid for _, questions in backend.requests for qid in questions}
     assert "trifecta.untrusted_source" not in asked
-    assert "trifecta.sink" in asked  # only the derived label is skipped
-    others = [x for x in outcome.labels if x.label != untrusted.label]
-    assert all(x.model == "fake/test" for x in others)
+    assert "trifecta.sink" in asked  # only the derived labels are skipped
+    derived = {x.label for x in outcome.labels if x.model == "derived"}
+    assert derived == {"sec.trifecta.untrusted_source", "sec.intent"}
 
 
 def test_spawn_trifecta_is_derived_not_asked() -> None:
@@ -970,12 +970,76 @@ def test_cli_label_reads_first_party_servers_from_config(
     assert cli.main([*args, "--db", str(db), "--config", str(config)]) == 0
     with LabelStore(db) as store:
         derived = [r for r in store.rows() if r[6] == "derived"]
-    assert [(r[2], r[3], r[4]) for r in derived] == [
-        ("sec.trifecta.untrusted_source", "no", 1.0)
+    assert sorted((r[2], r[3], r[4]) for r in derived) == [
+        ("sec.intent", "other", 1.0),
+        ("sec.trifecta.untrusted_source", "no", 1.0),
     ]
     assert (
         cli.main([*args, "--db", str(db), "--config", str(tmp_path / "no.toml")]) == 1
     )
+
+
+@pytest.mark.parametrize("servers", [["fake_vendor_tools"], [], None])
+def test_tool_loading_intent_is_derived_other(servers: list[str] | None) -> None:
+    backend = FakeBackend(overrides={"intent": {"explore": 0.99}})  # would say explore
+    intent = by_label(label_call(tool_search(servers), CARDS, backend))["sec.intent"]
+    assert (intent.answer, intent.p, intent.model) == ("other", 1.0, "derived")
+    asked = {qid for _, questions in backend.requests for qid in questions}
+    assert "intent" not in asked
+
+
+def test_tool_loading_intent_respects_gating() -> None:
+    # A ToolSearch with no captured args is at name_only, where intent isn't asked.
+    bare = replace(tool_search(None), args={}, basis="name_only")
+    labels = by_label(label_call(bare, CARDS, FakeBackend()))
+    assert "sec.intent" not in labels
+
+
+def mcp_call(server: str) -> ParsedToolCall:
+    return call(
+        tool_name=f"mcp__{server}__convert_length",
+        args={"value": 26.2, "from_unit": "mi", "to_unit": "km"},
+        output="26.2 mi = 42.16 km",
+    )
+
+
+def test_mcp_tool_result_is_derived_untrusted() -> None:
+    backend = FakeBackend(
+        overrides={"trifecta.untrusted_source": {"yes": 0.01, "no": 0.99}}
+    )
+    labels = by_label(label_call(mcp_call("unitconv"), CARDS, backend))
+    untrusted = labels["sec.trifecta.untrusted_source"]
+    assert (untrusted.answer, untrusted.p, untrusted.model) == ("yes", 1.0, "derived")
+    asked = {qid for _, questions in backend.requests for qid in questions}
+    assert "trifecta.untrusted_source" not in asked
+    assert {"injection", "intent", "trifecta.sink"} <= asked  # judgments still asked
+
+
+def test_mcp_tool_result_from_an_allowlisted_server_asks_the_card() -> None:
+    backend = FakeBackend()
+    outcome = label_call(
+        mcp_call("example-notes"),
+        CARDS,
+        backend,
+        first_party_mcp_servers=frozenset({"example-notes"}),
+    )
+    assert by_label(outcome)["sec.trifecta.untrusted_source"].model == "fake/test"
+    assert all(x.model != "derived" for x in outcome.labels)
+
+
+def test_the_mcp_allowlist_is_empty_by_default() -> None:
+    from spangloss.config import Config, load_config
+
+    assert Config().first_party_mcp_servers == frozenset()
+    assert load_config(Path("no-such-spangloss.toml")).first_party_mcp_servers == (
+        frozenset()
+    )
+
+
+def test_built_in_tools_get_no_derived_untrusted_source() -> None:
+    read = call(tool_name="Read", args={"file_path": "/w/x.md"}, output="hi")
+    labels = by_label(label_call(read, CARDS, FakeBackend()))
+    assert labels["sec.trifecta.untrusted_source"].model == "fake/test"
 
 
 def test_parsed_records_round_trip_into_parsed_tool_call() -> None:

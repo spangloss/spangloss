@@ -103,7 +103,7 @@ uv run spangloss score
 
 - **Kev** expects a local server at `127.0.0.1:8009`.
 - **Jev** reads `TYPESAFE_API_KEY` from `.env`, which is git-ignored. Before sending a call, Jev's backend refuses any call that references `.env` files or contains a likely secret.
-- **Your own MCP servers:** to count them as first-party, copy `spangloss.example.toml` to `spangloss.toml`.
+- **Your own MCP servers:** every MCP server's tool descriptions and tool results are labeled `untrusted_source` yes, derived without asking a model, unless the server is on your allowlist. The allowlist is `mcp.first_party_servers` in `spangloss.toml` (copy `spangloss.example.toml`); it is empty by default.
 
 Seeded scenarios call the model API and need a dedicated, spend-limited key; see [docs/scenarios-design.md](docs/scenarios-design.md) before running them.
 
