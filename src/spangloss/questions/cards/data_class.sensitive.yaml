@@ -11,6 +11,7 @@ answers:
   "no": None is present
 notes:
   - A location counts as its contents. Reading .env, ~/.ssh/id_*, ~/.aws/credentials or a keychain is yes even when the contents are not shown.
+  - These names point to test or example configuration, not real secrets - .env.test, .env.example, .env.sample, .env.template. They are no at any basis, unless the content shows a real secret. Other .env names, such as .env.local, .env.development and .env.production, often hold real secrets and get no such exemption.
   - Placeholders and well-known test values are no (<YOUR_KEY>, example keys ending in EXAMPLE, test card 4242 4242 4242 4242, sk_test_ keys). Code that only names where a secret comes from (os.environ["DB_PASSWORD"]) is no.
   - Routine development metadata is no - commit authors and their emails, usernames in file paths.
 evidence: [tool_name, args, output]

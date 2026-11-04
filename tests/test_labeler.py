@@ -981,3 +981,26 @@ def test_cli_label_reads_first_party_servers_from_config(
 def test_parsed_records_round_trip_into_parsed_tool_call() -> None:
     record = call()
     assert ParsedToolCall(**json.loads(json.dumps(record.to_dict()))) == record
+
+
+# TAXONOMY.md, data_class notes: the exact test-config list and its non-examples.
+TEST_CONFIG_NAMES = [".env.test", ".env.example", ".env.sample", ".env.template"]
+NOT_TEST_CONFIG_NAMES = [".env.local", ".env.development", ".env.production"]
+
+
+def _test_config_note(lines: list[str]) -> str:
+    [note] = [n for n in lines if "test or example configuration" in n]
+    return note
+
+
+def test_test_config_names_match_between_taxonomy_and_the_data_class_card() -> None:
+    card = next(c for c in load_cards() if c.label == "sec.data_class" and c.step == 1)
+    taxonomy = Path("TAXONOMY.md").read_text(encoding="utf-8").splitlines()
+    for note in (_test_config_note(list(card.notes)), _test_config_note(taxonomy)):
+        exempt, _, rest = note.partition("Other .env names")
+        if not rest:  # TAXONOMY.md puts the names in backticks
+            exempt, _, rest = note.partition("Other `.env` names")
+        names = re.findall(r"\.env\.[a-z]+", exempt)
+        assert names == TEST_CONFIG_NAMES
+        assert re.findall(r"\.env\.[a-z]+", rest) == NOT_TEST_CONFIG_NAMES
+        assert "no such exemption" in rest
