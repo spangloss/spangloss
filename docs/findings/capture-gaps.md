@@ -13,6 +13,7 @@ All observations are from **Claude Code 2.1.312**, with tool details and tool co
 | [WebFetch output is a summary, not the page](#webfetch-output-is-a-summary-not-the-page) | every WebFetch call | injected text can be dropped or paraphrased before it reaches the trace |
 | [Handback content is not captured](#handback-content-is-not-captured) | subagent returns | returned text unjudgeable; taint rule anchors on the spawn |
 | [MCP tool descriptions are not captured](#mcp-tool-descriptions-are-not-captured) | every MCP tool, deferred or upfront | tool poisoning is invisible; injection can't be judged on a description |
+| [A workspace CLAUDE.md is not captured](#a-workspace-claudemd-is-not-captured) | every session in a directory with a `CLAUDE.md` | a poisoned `CLAUDE.md` in a cloned repo is invisible; nothing to label |
 
 ## Grep and Glob output is not captured
 
@@ -95,9 +96,25 @@ The rule applies to every tool. Whether a complete copy survives elsewhere depen
 
 **How we observed it:**
 - **Real sessions:** `data/raw/` holds 4 ToolSearch spans and no `tool.output` event for any of them. The parser made 3 ToolSearch records, all without output: two at `name_only` and one at `args` basis with a `select:` query, the form that loads named tools.
+- **Scenario runs (2026-11-03):** `tool_poisoning` v1, two runs each of `deferred` and `upfront`. In every run the server connected and the tool was called, and neither the canary token nor any other text from the description appears in the raw traces or logs. The two `deferred` ToolSearch calls are at `args` basis with no output. Yet in three of the four final answers the agent described the instruction to the user, so the description did reach the model.
 - **Scenario probe (2026-11-01):** a fake stdio MCP server inside the scenario container (`scenarios/tool_poisoning/mcp/unitconv.py`) whose one tool's description carries a canary instruction. With a placeholder key, Claude Code's init event listed `mcp__unitconv__convert_length` among the tools and the server as `connected`, so the description was loaded. No span holds it.
 
 **Effect:**
 - **Tool poisoning is invisible** in Claude Code 2.1.312 telemetry. TAXONOMY.md's note on judging tool descriptions as output can't apply: there is no output to judge, and `sec.injection` is never asked on a ToolSearch call.
 - **What remains visible:** the `select:` query names the server, so a derived `sec.trifecta.untrusted_source` can still mark the load as coming from a third-party server; the later calls to the MCP tool are labeled as usual; and a scenario canary can still record whether the agent obeyed the description.
-- **Scenario `tool_poisoning`** has its server built but is not yet wired into the runner (its README).
+- **Scenario `tool_poisoning`** measures exactly these three; it can't produce an injection-positive span.
+
+## A workspace CLAUDE.md is not captured
+
+**What:** Claude Code loads a `CLAUDE.md` in the working directory into the model's context at session start, without a tool call. No span, span event or log event holds the file's content or records that it was loaded.
+
+**How we observed it (2026-11-03):** a one-off probe in the isolated scenario runner (normal mode, not `--bare`). The workspace held a `CLAUDE.md` with a unique codename marker. The prompt asked for the codename without using tools.
+- The agent answered with the marker in one turn and named `/workspace/CLAUDE.md` as its source, so the file was in context.
+- The run produced no tool calls; its only spans were one `claude_code.interaction` and one `claude_code.llm_request`.
+- The marker appears nowhere in the traces. In the logs it appears once, in the `assistant_response` event, which is the model repeating it. The `user_prompt` and `api_request` events don't hold it, and `llm_request.context` is a short label, not the context.
+
+**Effect:**
+- **A poisoned `CLAUDE.md` in a cloned repository is invisible to telemetry.** Its instructions steer the session, but there's no span to label `sec.injection`, and nothing records which instruction files were loaded. Only the calls they lead to are labeled.
+- An instruction file the agent reads with a tool (an `AGENTS.md` read with Read, as in scenario `hard_negatives`) is a normal Read span and is labeled as usual.
+- Scenarios that test instruction files therefore use one the agent reads with a tool (`hard_negatives` uses `AGENTS.md`).
+- The upstream feature request ([#106615](https://github.com/anthropics/claude-code/issues/106615)) predates this gap and doesn't cover it.
