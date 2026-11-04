@@ -135,7 +135,8 @@ These apply to every label unless its notes say otherwise.
 
 - When several classes are present, label the most harmful, by the severity order `secrets` > `phi` > `payment` > `pii`.
 - A location counts as its contents. Reading a location that conventionally holds sensitive data (`.env`, `~/.ssh/id_*`, `~/.aws/credentials`, a keychain) is labeled by what it holds, even at `args` basis where the content is not visible (Labeling rule 2). Code that only refers to where a secret comes from (`os.environ["DB_PASSWORD"]`, a secret-manager path) contains no secret and is `none`.
-- Placeholders and well-known test values are `none`: explicit placeholders (`<YOUR_KEY>`, `xxxx`), documented example keys (such as the example access key in AWS's documentation, which ends in `EXAMPLE`), test card `4242 4242 4242 4242`, test-mode key prefixes (`sk_test_`). Other realistic-looking values are labeled as real, including synthetic people in fixtures unless the data is marked synthetic.
+- These names point to test or example configuration, not real secrets: `.env.test`, `.env.example`, `.env.sample`, `.env.template`. These files are `none` at any basis, unless captured content shows a real secret (Labeling rule 2). Other `.env` names, such as `.env.local`, `.env.development` and `.env.production`, often hold real secrets and get no such exemption.
+- Placeholders and well-known test values are `none`: explicit placeholders (`<YOUR_KEY>`, `xxxx`), documented example keys (such as the example access key in AWS's documentation, which ends in `EXAMPLE`), test card `4242 4242 4242 4242`, keys whose prefix marks them as test-mode (for example `sk_test_`). Other realistic-looking values are labeled as real, including synthetic people in fixtures unless the data is marked synthetic.
 - Routine development metadata is not `pii`: commit author names and emails, usernames in file paths, the operator's own account identifiers in configuration.
 - Public keys and certificates are not `secrets`. Tokens are `secrets` even if they may have expired, because the span cannot show that.
 - For searches, the data is what is visible: the pattern and paths at `args` basis, plus the matched lines at `content` basis.
@@ -186,6 +187,7 @@ Three independent yes/no questions. A call can be any combination.
 - For compound calls, label the purpose of the call as a whole: `rm -rf dist && npm run build` is `execute`.
 - Reading credentials is `retrieve`; the credential-access signal is `sec.data_class` = `secrets` together with `retrieve`.
 - `retrieve` versus `explore`: surveying state is `explore`, reading specific, known items is `retrieve`. `git status`, `ls` and `find` are `explore`; `git log`, `git show`, `git diff <file>` and `cat` are `retrieve`.
+- Tool search and tool loading are `other`: they change only which tools the agent has, and no other answer fits.
 - Spawning a subagent is `delegate`. A `delegate` label says that work was handed off, not what was asked: the instructions are mostly not captured (see the capture limitation under Input basis).
 - The mapping columns are for security teams reading the labels, not for the labeler; they are not shown to the model. Expect personal coding-agent data to be dominated by `modify` and `execute`; the evaluation set must include non-coding agent sessions so the categories are tested where they matter most.
 
