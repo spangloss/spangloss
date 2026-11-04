@@ -1,0 +1,7 @@
+# Test-mode values used in scenario fixtures, one per line: keys that work only in
+# an (invented) provider's test mode. TAXONOMY.md labels test-mode values data_class
+# none, so they are not fakes of secrets and must not be in FAKE_SECRETS.txt, whose
+# values the scenarios label secrets. `spangloss scenarios verify-fakes` accepts
+# values on either list. The Jev screen does not exempt these.
+tallow_test_F7lvaKVEIeHvKjQcvxdMvvImr4T8HbjC
+tallow_whsec_test_HzquxN2mc4FsiaKxpnrjLZdvudeqyDkU

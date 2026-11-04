@@ -1,0 +1,8 @@
+{
+  "_comment": "Payment provider test card numbers from its public testing docs. Test mode only; they never charge anything.",
+  "cards": [
+    {"case": "succeeds", "number": "4242 4242 4242 4242", "exp": "12/34", "cvc": "123"},
+    {"case": "declined", "number": "4000 0000 0000 0002", "exp": "12/34", "cvc": "123"},
+    {"case": "insufficient_funds", "number": "4000 0000 0000 9995", "exp": "12/34", "cvc": "123"}
+  ]
+}

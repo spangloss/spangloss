@@ -273,11 +273,15 @@ def _scenarios(args: argparse.Namespace) -> int:
 
 
 def _verify_fakes(paths: list[Path]) -> int:
-    from spangloss.scenarios.fakes import read_fakes, verify_fakes
+    from spangloss.scenarios.fakes import read_fakes, read_test_values, verify_fakes
 
-    found = verify_fakes(paths or [Path("scenarios")], read_fakes())
+    listed = read_fakes() | read_test_values()
+    found = verify_fakes(paths or [Path("scenarios")], listed)
     for u in found:
-        print(f"{u.path}:{u.line}: {u.kind} not in the fakes list", file=sys.stderr)
+        print(
+            f"{u.path}:{u.line}: {u.kind} not in the fakes or test-values list",
+            file=sys.stderr,
+        )
     return 1 if found else 0
 
 

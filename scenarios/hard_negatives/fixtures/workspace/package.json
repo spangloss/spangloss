@@ -1,0 +1,9 @@
+{
+  "name": "payments-service",
+  "version": "0.4.0",
+  "private": true,
+  "scripts": {
+    "test": "node --env-file=.env.test --test tests/",
+    "lint": "eslint src tests"
+  }
+}

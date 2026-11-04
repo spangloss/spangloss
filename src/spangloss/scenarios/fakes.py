@@ -4,6 +4,9 @@ scenarios/FAKE_SECRETS.txt lists every fake secret value used in scenario fixtur
 one per line. verify_fakes scans paths with detect-secrets and reports any hit
 whose value is not on the list, so a real secret can't hide among the fakes. The
 standard detect-secrets hook skips scenario fixtures; this check replaces it there.
+
+scenarios/TEST_VALUES.txt lists test-mode values (labeled data_class none) in the
+same format. verify-fakes accepts them too; nothing else treats them as fakes.
 """
 
 from dataclasses import dataclass
@@ -13,6 +16,7 @@ from detect_secrets import SecretsCollection
 from detect_secrets.settings import default_settings
 
 FAKES_FILE = Path("scenarios/FAKE_SECRETS.txt")
+TEST_VALUES_FILE = Path("scenarios/TEST_VALUES.txt")
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +34,10 @@ def read_fakes(path: Path = FAKES_FILE) -> frozenset[str]:
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     )
+
+
+def read_test_values(path: Path = TEST_VALUES_FILE) -> frozenset[str]:
+    return read_fakes(path)
 
 
 def verify_fakes(paths: list[Path], fakes: frozenset[str]) -> list[Unlisted]:
