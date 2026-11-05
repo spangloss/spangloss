@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | Capture | `docker-compose.yml`, `otel/collector.yaml`, `scripts/telemetry.sh`, `docs/capture.md` | Local Collector writes Claude Code traces and logs to `data/raw/`, strips account identity |
 | Parse | `parse/` | Joins tool spans with `tool_result` logs; records basis, decision, nesting, loaded MCP servers; ignores resource attributes copied onto spans |
-| Taxonomy | `TAXONOMY.md` (owner's), `questions/cards/` | **0.3.2** committed, with the v0 clarifying notes (test-config env names, test-mode key prefixes, tool-loading intent) and the v0 injection card (split question (a) with a tool-hints note); freeze pending (see v0 phase 2). Earlier: spawns are no for the trifecta (derived, not asked); reported injections are no; a tool's own usage reminder on its results (a web search's "cite your sources") is injection no (a clarifying note, no version bump) |
+| Taxonomy | `TAXONOMY.md` (owner's), `questions/cards/` | **0.4.0, frozen for v0** (tag `taxonomy-v0.4.0`, 2026-11-04): the injection question and answers are the v0 card's (split question (a) with a tool-hints note on `no`), with the earlier definitions as hand-labeling notes; test-config env names and test-mode key prefixes are data_class `none`; tool loading is intent `other`; untrusted_source is derived for MCP tool calls. Changes found after the freeze go under "Post-v0 backlog" |
 | Labeling | `questions/runner.py`, `questions/incoming.py`, `questions/derived.py`, `backends/` | Kev (local) and Jev (hosted) backends; Kev doesn't answer `sec.injection` in v0 (`backends/support.py`: not asked, not written, scored as unsupported); injection gated on incoming content; data_class `none` derived for a Read, Grep or Glob whose target is a test-config file, below content basis; derived labels (p 1.0, model `derived`) for tool-loading provenance and intent (`other`), untrusted_source `yes` on every MCP tool call outside the `mcp.first_party_servers` allowlist (empty by default), and all three trifecta labels on Agent spawns; a derived label is written only where its card would be asked |
 | Hosted screen | `backends/safety.py`, `scenarios/provenance.py` | Real sessions: strict (no `.env` references, no detect-secrets hits). Verified scenario runs (current version, fixture hashes, network check, own session): `.env` rule skipped, unlisted secrets still refused |
 | Store and rules | `store/labels.py`, `rules/subagent_taint.py` | DuckDB labels and findings; subagent taint anchored on the spawn |
@@ -16,7 +16,7 @@
 | Scenarios | `scenarios/`, `scenarios/` package, `docs/scenarios-design.md` | Isolated Docker runs (internal network, key proxy, per-run Collector, page stand-in at `docs.tinyfmt.example`, stdio MCP servers via `mcp_servers`, per-prompt `tools`), `scenarios run/check/list/verify-fakes`; test-mode values in `scenarios/TEST_VALUES.txt`, apart from the fakes |
 | Findings | `docs/findings/capture-gaps.md`, `docs/findings/known-limitations.md` | Six capture gaps in Claude Code 2.1.312 telemetry, with evidence; the fifth: MCP tool descriptions are not captured, so tool poisoning is invisible; the sixth (2026-11-03, not in the upstream reports): a workspace `CLAUDE.md` enters the context with no span or event. Filed upstream on 2026-11-01: [#106614](https://github.com/anthropics/claude-code/issues/106614) (documentation: truncation) and [#106615](https://github.com/anthropics/claude-code/issues/106615) (feature request: capture gaps). Known limitations: injection needs Jev (Kev's per-shape numbers); content-basis test-config Reads stay model-answered |
 
-Scenarios, all at taxonomy 0.3.2:
+Scenarios, all at taxonomy 0.4.0:
 - `secrets_read` v3, with prompts `precise`, `loose` and `indirect`;
 - `web_injection` v1 (WebFetch) and `web_injection_curl` v1 (the control);
 - `tainted_delegation` v1;
@@ -30,12 +30,12 @@ Scenarios, all at taxonomy 0.3.2:
 | --- | --- |
 | `data/raw/` | Real interactive sessions (never commit) |
 | `data/parsed/tool_calls.jsonl` | Parsed real calls; the first 20 are the hand-labeled gold calls |
-| `data/eval/gold.jsonl` | 20 hand-labeled records, all at 0.3.2 (`review_handback_001.csv` imported; the record's answers were unchanged); backups `gold.before_031.jsonl`, `gold.before_032.jsonl`, `gold.before_handback.jsonl` |
-| `data/labels.duckdb` | Kev, Jev and derived labels for the hand gold on the v0 cards (2026-11-03 rerun), rederived 2026-11-04; `labels.before_freeze.duckdb` is the store before that; `labels.0.3.2-final.duckdb` is the 0.3.2 run; `labels.0.3.0`, `.0.3.1`, `.0.3.2-notes.duckdb` are earlier runs |
+| `data/eval/gold.jsonl` | 20 hand-labeled records, all at 0.4.0 (restamped 2026-11-04; backup `gold.before_040.jsonl`; `review_handback_001.csv` imported; the record's answers were unchanged); backups `gold.before_031.jsonl`, `gold.before_032.jsonl`, `gold.before_handback.jsonl` |
+| `data/labels.duckdb` | Kev, Jev and derived labels for the hand gold on the v0 cards (2026-11-03 rerun), rederived and stamped 0.4.0 on 2026-11-04; `labels.before_freeze.duckdb` is the store before the rederive, `labels.before_040.duckdb` before the stamp; `labels.0.3.2-final.duckdb` is the 0.3.2 run; `labels.0.3.0`, `.0.3.1`, `.0.3.2-notes.duckdb` are earlier runs |
 | `data/scenarios/runs/<run_id>/` | Each run: `run.json`, `stream.jsonl`, raw traces and logs, `tool_calls.jsonl`, `check.json`, `review.csv` |
-| `data/scenarios/gold.jsonl` | 111 scenario gold records at 0.3.2: the 70 of 2026-11-03 (30 earlier, 20 `poisoned_dependency` v2, 14 `hard_negatives`, 6 `tool_poisoning`) plus 41 from the v0 rerun (21, 13, 6 of those); backups `gold.before_032.jsonl`, `gold.before_pd.jsonl`, `gold.before_v2runs.jsonl`, `gold.before_v0rerun.jsonl` |
+| `data/scenarios/gold.jsonl` | 111 scenario gold records at 0.4.0 (restamped 2026-11-04; backup `gold.before_040.jsonl`): the 70 of 2026-11-03 (30 earlier, 20 `poisoned_dependency` v2, 14 `hard_negatives`, 6 `tool_poisoning`) plus 41 from the v0 rerun (21, 13, 6 of those); backups `gold.before_032.jsonl`, `gold.before_pd.jsonl`, `gold.before_v2runs.jsonl`, `gold.before_v0rerun.jsonl` |
 | `data/scenarios/tool_calls.jsonl` | Calls of every passing run: the input for labeling scenario gold |
-| `data/scenarios/labels.duckdb` | Kev, Jev and derived labels for all 111 scenario gold calls on the v0 cards, rederived 2026-11-04; `labels.before_freeze.duckdb` is the store before that; `labels.0.3.2-final.duckdb` holds the 70 on the 0.3.2 cards; `labels.before_v2runs.duckdb` the 30 before that; `labels.0.3.1`, `.0.3.2-notes.duckdb` are earlier runs |
+| `data/scenarios/labels.duckdb` | Kev, Jev and derived labels for all 111 scenario gold calls on the v0 cards, rederived and stamped 0.4.0 on 2026-11-04; `labels.before_freeze.duckdb` is the store before the rederive, `labels.before_040.duckdb` before the stamp; `labels.0.3.2-final.duckdb` holds the 70 on the 0.3.2 cards; `labels.before_v2runs.duckdb` the 30 before that; `labels.0.3.1`, `.0.3.2-notes.duckdb` are earlier runs |
 | `data/scenarios/probes/` | One-off probe runs (the `CLAUDE.md` probe for capture gap 6) |
 | `data/experiments/` | Injection-split experiment outputs for Kev and Jev (58 eligible calls); `*.before_v2runs.json` are the 34-call runs |
 
@@ -258,14 +258,36 @@ The last one deserves a look before relying on it: the search path `/workspace` 
 
 **Freeze, prepared and uncommitted:** the TAXONOMY.md injection section from card (a), the 0.4.0 header and changelog entry, and `gold restamp` rules for 0.3.2 → 0.4.0 (`eval/restamp.py`, with tests). Dry run on copies with the cards at 0.4.0: all 111 scenario and 20 hand gold records restamp, none held back. The injection rewording is treated as affecting no record, because the 0.3.2 definitions stay as notes.
 
+## Taxonomy frozen for v0: 0.4.0 (2026-11-04)
+
+Approved by Phil with changes: the framed-examples and guidance sentence in the injection notes, no hand recheck of the 11 injection positives, tag `taxonomy-v0.4.0` (not `v0.4.0`, to keep it apart from the Nov 29 software release), and v0 ships with the current data_class false positives.
+
+| Commit | Change |
+| --- | --- |
+| `70ffe47` | Test that no detection rule reads a missing `sec.injection` as `no`. No rule reads injection today, so the test guards future rules; it checks itself against a rule that does |
+| `03224ad` | Known limitations: `secrets` precision, Kev 5/17 and Jev 5/20, with the false positives by shape |
+| `97cfdae` | TAXONOMY.md 0.4.0, frozen for v0: injection from the v0 card, the approved notes, the 0.4.0 changelog entry |
+| `ee04b78` | `gold restamp` rules for 0.3.2 → 0.4.0, one per changelog item |
+| `099f8c9` | Cards and scenarios at taxonomy 0.4.0 (only the version fields change) |
+
+- **Gold restamped:** all 111 scenario and 20 hand records to 0.4.0, none held back.
+- **Stored labels stamped 0.4.0:** 1,596 scenario and 242 hand rows. They were written on 2026-11-03 at 19:40–19:49, after the final card commits (19:35–19:36), and the cards have changed since only in their `taxonomy` field. Derived rows were rewritten by `rederive`.
+- **Rescored at 0.4.0:** identical to the freeze-preparation numbers above; nothing skipped for a version mismatch.
+
+## Post-v0 backlog
+
+Anything found after the freeze goes here, not into the 0.4.0 taxonomy.
+
+1. **Gold consistency review: args-basis searches whose path or pattern covers a real secret file** (report only; Phil decides any gold changes). The `secrets_read` Grep for credential words over `/workspace` (its glob excludes only `node_modules`, so it covers `app/.env`), and the `hard_negatives` Globs of `**/.env*`. For each: the call, its current gold, and the TAXONOMY rule that applies.
+
 ## Open decisions (owner)
 
-1. **The v0 freeze** (labeling-change cutoff Friday, Nov 6): approve the TAXONOMY.md injection wording, 0.4.0 header and changelog entry (uncommitted), then the rescored numbers above.
+1. **Gold changes, if any,** from the post-v0 consistency review (backlog item 1).
 2. **The draft's ⚑ cells still open** in `docs/scenarios-design.md` section 11: 6.2 aggregates, a handback without the token, and `chmod` on a key directory.
 
 ## Next steps
 
-1. **Freeze the taxonomy for v0** once Phil approves: commit TAXONOMY.md and the restamp rules, set the cards' and scenarios' `taxonomy` to 0.4.0, `gold restamp --to 0.4.0` on both gold files, bring the stored labels' stamps to 0.4.0 (their cards are unchanged apart from the version field), tag `v0.4.0`, mark the taxonomy frozen here, push. Anything found after the freeze goes under a "post-v0 backlog" heading.
+1. **Post-v0 backlog item 1:** the gold consistency review.
 2. **Upstream:** add capture gap 6 (`CLAUDE.md`) to the feature request, #106615.
 3. **Public push checks**, before the repository goes public:
    - a secret scan over the full git history;
