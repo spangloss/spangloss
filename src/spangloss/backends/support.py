@@ -13,6 +13,8 @@ Principle 2), so detection rules must treat it like a label that wasn't asked.
 Keyed by backend name, the part of sec.model before the "/".
 """
 
+BACKENDS = ("kev", "jev")  # the backends `spangloss label --backend` offers
+
 UNSUPPORTED_LABELS: dict[str, frozenset[str]] = {
     "kev": frozenset({"sec.injection"}),
 }

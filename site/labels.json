@@ -1,0 +1,175 @@
+{
+  "taxonomy": "0.4.0",
+  "generated_from": "TAXONOMY.md",
+  "generator": "python -m spangloss.sitegen",
+  "asks_about_status": "proposed",
+  "labels": [
+    {
+      "name": "sec.effect",
+      "asks_about": "What the call does to the systems it touches",
+      "answers": [
+        "read",
+        "write",
+        "delete",
+        "execute",
+        "none"
+      ],
+      "min_basis": "name_only",
+      "asked_when": "Always (name_only or above)",
+      "source": "model",
+      "backends": {
+        "reported_by": [
+          "kev",
+          "jev"
+        ],
+        "not_reported_by": []
+      }
+    },
+    {
+      "name": "sec.reversibility",
+      "asks_about": "Whether the call's effects could be undone if it was a mistake",
+      "answers": [
+        "reversible",
+        "recoverable",
+        "irreversible"
+      ],
+      "min_basis": "args",
+      "asked_when": "Basis is args or above",
+      "source": "model",
+      "backends": {
+        "reported_by": [
+          "kev",
+          "jev"
+        ],
+        "not_reported_by": []
+      }
+    },
+    {
+      "name": "sec.data_class",
+      "asks_about": "Whether the call touches sensitive data, and which kind",
+      "answers": [
+        "none",
+        "secrets",
+        "phi",
+        "payment",
+        "pii"
+      ],
+      "min_basis": "args",
+      "asked_when": "Basis is args or above",
+      "source": "both",
+      "backends": {
+        "reported_by": [
+          "kev",
+          "jev"
+        ],
+        "not_reported_by": []
+      }
+    },
+    {
+      "name": "sec.trifecta",
+      "asks_about": "[owner to write]",
+      "min_basis": "name_only",
+      "asked_when": "Always (name_only or above); at name_only, from the tool's documented behavior",
+      "sub_labels": [
+        {
+          "name": "sec.trifecta.private_source",
+          "asks_about": "Whether the call accesses data that isn't public",
+          "answers": [
+            "yes",
+            "no"
+          ],
+          "min_basis": "name_only",
+          "asked_when": "Always (name_only or above); at name_only, from the tool's documented behavior",
+          "source": "both",
+          "backends": {
+            "reported_by": [
+              "kev",
+              "jev"
+            ],
+            "not_reported_by": []
+          }
+        },
+        {
+          "name": "sec.trifecta.untrusted_source",
+          "asks_about": "Whether the call brings in content from outside the user's control",
+          "answers": [
+            "yes",
+            "no"
+          ],
+          "min_basis": "name_only",
+          "asked_when": "Always (name_only or above); at name_only, from the tool's documented behavior",
+          "source": "both",
+          "backends": {
+            "reported_by": [
+              "kev",
+              "jev"
+            ],
+            "not_reported_by": []
+          }
+        },
+        {
+          "name": "sec.trifecta.sink",
+          "asks_about": "Whether the call sends data off the machine, to an unconfirmed destination",
+          "answers": [
+            "yes",
+            "no"
+          ],
+          "min_basis": "name_only",
+          "asked_when": "Always (name_only or above); at name_only, from the tool's documented behavior",
+          "source": "both",
+          "backends": {
+            "reported_by": [
+              "kev",
+              "jev"
+            ],
+            "not_reported_by": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "sec.intent",
+      "asks_about": "What the call is for, as a category",
+      "answers": [
+        "retrieve",
+        "explore",
+        "modify",
+        "execute",
+        "communicate",
+        "access_control",
+        "transact",
+        "delegate",
+        "other"
+      ],
+      "min_basis": "args",
+      "asked_when": "Basis is args or above",
+      "source": "both",
+      "backends": {
+        "reported_by": [
+          "kev",
+          "jev"
+        ],
+        "not_reported_by": []
+      }
+    },
+    {
+      "name": "sec.injection",
+      "asks_about": "Whether incoming content tries to steer the agent beyond its purpose",
+      "answers": [
+        "yes",
+        "no"
+      ],
+      "min_basis": "name_only",
+      "asked_when": "The call has incoming content, at any basis: its output, or for a return-path tool, its content-carrying argument",
+      "source": "model",
+      "backends": {
+        "reported_by": [
+          "jev"
+        ],
+        "not_reported_by": [
+          "kev"
+        ]
+      }
+    }
+  ]
+}

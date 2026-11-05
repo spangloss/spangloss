@@ -9,6 +9,7 @@ from pathlib import Path
 
 from spangloss import __version__
 from spangloss.backends import Backend
+from spangloss.backends.support import BACKENDS
 from spangloss.config import DEFAULT_CONFIG, ConfigError, load_config
 from spangloss.eval import (
     DEFAULT_GOLD,
@@ -62,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     label = commands.add_parser("label", help="Label parsed tool calls.")
-    label.add_argument("--backend", choices=["kev", "jev"], required=True)
+    label.add_argument("--backend", choices=BACKENDS, required=True)
     label.add_argument(
         "--limit", type=int, required=True, help="label at most N unlabeled calls"
     )

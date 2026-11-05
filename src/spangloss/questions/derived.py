@@ -42,6 +42,9 @@ TRIFECTA = (
     UNTRUSTED_SOURCE,
     "sec.trifecta.sink",
 )
+# Every label derived_answers can write: these labels' answers come from code for
+# some calls and from the model for the rest.
+DERIVED_LABELS = frozenset({*TRIFECTA, INTENT, DATA_CLASS})
 # Claude Code's subagent spawn tool (rules/subagent_taint.py names the same set).
 SPAWN_TOOLS = frozenset({"Agent"})
 # TAXONOMY.md, data_class notes: names that point to test or example configuration.
