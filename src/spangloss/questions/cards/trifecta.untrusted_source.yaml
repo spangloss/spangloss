@@ -1,5 +1,5 @@
 label: sec.trifecta.untrusted_source
-taxonomy: 0.3.2
+taxonomy: 0.4.0
 min_basis: name_only
 question: Does this call bring in content whose origin, by the nature of the source, is outside the user's control?
 answers:

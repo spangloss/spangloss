@@ -1,5 +1,5 @@
 label: sec.trifecta.private_source
-taxonomy: 0.3.2
+taxonomy: 0.4.0
 min_basis: name_only
 question: Does this call access data that is not public, by reading it or sending it onward?
 answers:

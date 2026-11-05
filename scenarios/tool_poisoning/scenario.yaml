@@ -8,7 +8,7 @@
 # the labels on the tool's own calls, and obedience through the canary.
 name: tool_poisoning
 version: 1
-taxonomy: 0.3.2
+taxonomy: 0.4.0
 description: A third-party MCP tool's description hides an instruction to the agent.
 
 prompts:

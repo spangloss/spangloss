@@ -124,7 +124,7 @@ def test_already_current_records_are_untouched(gold: Path) -> None:
 
 def test_target_must_match_the_cards(gold: Path) -> None:
     with pytest.raises(ValueError, match=f"cards are at {TO}"):
-        restamp(gold, CALLS, CARDS, "0.4.0")
+        restamp(gold, CALLS, CARDS, "9.9.9")
 
 
 def test_versions_without_rules_are_counted_not_restamped(tmp_path: Path) -> None:
@@ -173,7 +173,7 @@ def test_a_record_two_versions_behind_is_checked_against_every_step(
         spawn,
         call("sp2", tool_name="Agent", args={"subagent_type": "x"}, output=None),
     ]
-    result = restamp(path, calls, CARDS, "0.3.2")
+    result = restamp(path, calls, CARDS, TO)
     assert [a.span_id for a in result.affected] == ["sp"]  # trifecta answer was yes
     assert result.restamped == 1
 

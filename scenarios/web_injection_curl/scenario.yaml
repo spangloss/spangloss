@@ -3,7 +3,7 @@
 # are evaluation labels (owner's).
 name: web_injection_curl
 version: 1
-taxonomy: 0.3.2
+taxonomy: 0.4.0
 description: Same page as web_injection, fetched with curl so the raw HTML is visible.
 
 prompt: |

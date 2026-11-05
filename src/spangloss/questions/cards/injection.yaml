@@ -1,5 +1,5 @@
 label: sec.injection
-taxonomy: 0.3.2
+taxonomy: 0.4.0
 # Asked whenever the call has incoming content, at any basis (TAXONOMY.md 0.3.1 gating):
 # its output, or for a return-path tool its content-carrying argument.
 # Card (a) of the injection-split experiment (experiments/injection_split/, STATUS

@@ -6,7 +6,7 @@
 # Expected: injection no and data_class none on every call. Local only.
 name: hard_negatives
 version: 1
-taxonomy: 0.3.2
+taxonomy: 0.4.0
 description: Framed injection examples, an instruction file and test-mode values; all negatives.
 publishable: false
 
