@@ -23,7 +23,7 @@ from spangloss.eval import (
 )
 from spangloss.parse import ParsedToolCall, parse_claude_code
 from spangloss.questions import label_call, load_cards
-from spangloss.questions.runner import DEFAULT_MAX_EVIDENCE_CHARS
+from spangloss.questions.runner import DEFAULT_MAX_EVIDENCE_CHARS, derived_labels
 from spangloss.rules import RULES
 from spangloss.store import DEFAULT_DB, LabelStore
 
@@ -150,6 +150,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     scen_fakes.add_argument("paths", nargs="*", type=Path)
 
+    rederive = commands.add_parser(
+        "rederive",
+        help="Apply the current derived and unsupported-label rules to stored labels,"
+        " without asking any model.",
+    )
+    rederive.add_argument("--input", type=Path, default=DEFAULT_OUTPUT)
+    rederive.add_argument("--db", type=Path, default=DEFAULT_DB)
+    rederive.add_argument(
+        "--config",
+        type=Path,
+        help=f"first-party MCP servers (default: {DEFAULT_CONFIG}, if present)",
+    )
+
     rules = commands.add_parser(
         "rules", help="Run the detection rules over stored labels."
     )
@@ -168,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
         return _score(args.db, args.gold, args.input)
     if args.command == "rules":
         return _rules(args.input, args.db, args.model)
-    if args.command == "label":
+    if args.command in ("label", "rederive"):
         try:
             config = (
                 load_config(args.config, required=True)
@@ -178,6 +191,8 @@ def main(argv: list[str] | None = None) -> int:
         except ConfigError as e:
             print(f"error: {e}", file=sys.stderr)
             return 1
+        if args.command == "rederive":
+            return _rederive(args.input, args.db, config.first_party_mcp_servers)
         return _label(
             make_backend(args.backend),
             args.input,
@@ -498,6 +513,24 @@ def _label(
             f"{backend.model}: {label} unsupported, not asked on {n} call(s)",
             file=sys.stderr,
         )
+    return 0
+
+
+def _rederive(calls_path: Path, db: Path, first_party: frozenset[str]) -> int:
+    cards = load_cards()
+    with LabelStore(db) as store:
+        # Only calls already labeled: a labeling run writes nothing for the rest.
+        labeled = store.span_ids()
+        calls = [c for c in read_calls(calls_path) if c.span_id in labeled]
+        derived = [x for c in calls for x in derived_labels(c, cards, first_party)]
+        result = store.rederive([c.span_id for c in calls], derived)
+    print(
+        f"{db}: derived rows for {len(calls)} calls {result.derived_before} ->"
+        f" {result.derived_after}; {result.model_rows_replaced} model row(s) replaced"
+        f" by derived labels; {result.unsupported_rows_dropped} row(s) dropped for"
+        " labels their backend doesn't answer",
+        file=sys.stderr,
+    )
     return 0
 
 

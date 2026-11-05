@@ -1,12 +1,14 @@
 """DuckDB label store: one row per tool call per label per model, plus rule findings."""
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
 from typing import Self
 
 import duckdb
 
+from spangloss.backends.support import unsupported_labels
 from spangloss.eval.score import StoredLabel
 from spangloss.questions.derived import DERIVED_MODEL
 from spangloss.questions.runner import Label
@@ -53,6 +55,14 @@ MIGRATIONS = [
 ]
 
 
+@dataclass(frozen=True, slots=True)
+class Rederived:
+    derived_before: int  # derived rows for the given calls before
+    derived_after: int  # derived rows written for them
+    model_rows_replaced: int  # model rows removed because the label is now derived
+    unsupported_rows_dropped: int  # model rows for labels their backend doesn't answer
+
+
 class LabelStore:
     def __init__(self, path: Path = DEFAULT_DB) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -88,6 +98,58 @@ class LabelStore:
                 rows,
             )
         return len(rows)
+
+    def rederive(self, span_ids: Iterable[str], derived: Iterable[Label]) -> Rederived:
+        """Bring stored labels in line with the current derived and unsupported rules,
+        as a fresh labeling run would leave them, without asking any model.
+
+        For the given calls, earlier derived rows are replaced by `derived`, and a
+        model's row for a label that is now derived is removed. Across the store, rows
+        for a label a model's backend does not answer are removed.
+        """
+        spans = list(span_ids)
+        new = list(derived)
+        before = self._count()
+        self._conn.execute("BEGIN TRANSACTION")
+        try:
+            if spans:
+                self._conn.executemany(
+                    "DELETE FROM labels WHERE span_id = ? AND model = ?",
+                    [(s, DERIVED_MODEL) for s in spans],
+                )
+            cleared = self._count()
+            if new:
+                self._conn.executemany(
+                    "DELETE FROM labels WHERE span_id = ? AND label = ?",
+                    [(x.span_id, x.label) for x in new],
+                )
+            replaced = cleared - self._count()
+            for model in self.models():
+                for label in unsupported_labels(model):
+                    self._conn.execute(
+                        "DELETE FROM labels WHERE model = ? AND label = ?",
+                        [model, label],
+                    )
+            dropped = cleared - replaced - self._count()
+            self.write(new)
+            self._conn.execute("COMMIT")
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+        return Rederived(
+            derived_before=before - cleared,
+            derived_after=len(new),
+            model_rows_replaced=replaced,
+            unsupported_rows_dropped=dropped,
+        )
+
+    def _count(self) -> int:
+        return self._conn.execute("SELECT count(*) FROM labels").fetchone()[0]
+
+    def span_ids(self) -> set[str]:
+        """Calls with any label in the store."""
+        rows = self._conn.execute("SELECT DISTINCT span_id FROM labels").fetchall()
+        return {r[0] for r in rows}
 
     def labeled_span_ids(self, model: str) -> set[str]:
         rows = self._conn.execute(

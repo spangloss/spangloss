@@ -1206,3 +1206,59 @@ def test_cli_label_reports_unsupported_labels(
     )
     with LabelStore(db) as store:
         assert all(r[2] != "sec.injection" for r in store.rows())
+
+
+# --- rederive ----------------------------------------------------------------
+
+
+def test_rederive_applies_current_rules_without_asking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env_test = call(
+        span_id="s000000000000002",
+        tool_name="Read",
+        args={"file_path": "/w/.env.test"},
+        output=None,
+    )
+    fetched = call(tool_name="WebFetch", args={"url": "https://x"}, output="text")
+    parsed = tmp_path / "tool_calls.jsonl"
+    never_labeled = replace(env_test, span_id="s000000000000003")
+    parsed.write_text(
+        "".join(
+            json.dumps(c.to_dict()) + "\n" for c in (env_test, fetched, never_labeled)
+        )
+    )
+    db = tmp_path / "labels.duckdb"
+    # Labels stored before the current rules: a model's data_class on the .env.test
+    # Read, Kev's injection on the fetch, and a stale derived row.
+    effect = by_label(label_call(env_test, CARDS, FakeBackend()))["sec.effect"]
+    with LabelStore(db) as store:
+        store.write(
+            [
+                effect,
+                replace(effect, label="sec.data_class", answer="secrets", p=0.9),
+                replace(effect, label="sec.reversibility", model="derived"),
+                replace(
+                    effect,
+                    span_id=fetched.span_id,
+                    label="sec.injection",
+                    answer="yes",
+                    model="kev/kev-latest",
+                ),
+            ]
+        )
+        assert len(store.rows()) == 4
+
+    def no_backend(name: str) -> None:
+        raise AssertionError("rederive must not ask a model")
+
+    monkeypatch.setattr(cli, "make_backend", no_backend)
+    assert cli.main(["rederive", "--input", str(parsed), "--db", str(db)]) == 0
+    with LabelStore(db) as store:
+        rows = {(r[0], r[2], r[6]): r[3] for r in store.rows()}
+    assert rows[(env_test.span_id, "sec.data_class", "derived")] == "none"
+    assert (env_test.span_id, "sec.data_class", "fake/test") not in rows
+    assert (env_test.span_id, "sec.reversibility", "derived") not in rows
+    assert (fetched.span_id, "sec.injection", "kev/kev-latest") not in rows
+    assert (env_test.span_id, "sec.effect", "fake/test") in rows  # untouched
+    assert all(r[0] != never_labeled.span_id for r in rows)  # not labeled, not derived
