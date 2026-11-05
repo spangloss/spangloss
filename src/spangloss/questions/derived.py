@@ -16,10 +16,19 @@ written without asking the model.
   a listed server the card is asked: the user's own server may still relay outside
   content. Jev answered no on all four results from a third-party server in the
   tool_poisoning runs (STATUS 2026-11-03).
+- A Read, Grep or Glob whose target is a test-config file (TAXONOMY.md, data_class
+  notes: .env.test, .env.example, .env.sample, .env.template) is sec.data_class
+  none, unless its content was captured: at content basis the content could show a
+  real secret, so the card is asked. The target is Read's file_path, Grep's path or
+  glob, or the last segment of Glob's pattern, matched by exact file name. Both
+  labelers answered secrets on every .env.test call in the hard_negatives runs
+  (STATUS 2026-11-04).
 
 The cards for derived labels are not asked. A derived label is written only where
 its card would be asked (the runner applies the card's gating).
 """
+
+from pathlib import PurePosixPath
 
 from spangloss.parse.claude_code import MCP_TOOL, TOOL_LOADING
 from spangloss.parse.record import ParsedToolCall
@@ -27,6 +36,7 @@ from spangloss.parse.record import ParsedToolCall
 DERIVED_MODEL = "derived"
 UNTRUSTED_SOURCE = "sec.trifecta.untrusted_source"
 INTENT = "sec.intent"
+DATA_CLASS = "sec.data_class"
 TRIFECTA = (
     "sec.trifecta.private_source",
     UNTRUSTED_SOURCE,
@@ -34,6 +44,14 @@ TRIFECTA = (
 )
 # Claude Code's subagent spawn tool (rules/subagent_taint.py names the same set).
 SPAWN_TOOLS = frozenset({"Agent"})
+# TAXONOMY.md, data_class notes: names that point to test or example configuration.
+TEST_CONFIG_NAMES = (".env.test", ".env.example", ".env.sample", ".env.template")
+# Where each file tool names the files it touches.
+TARGET_ARGS: dict[str, tuple[str, ...]] = {
+    "Read": ("file_path",),
+    "Grep": ("path", "glob"),
+    "Glob": ("pattern",),
+}
 
 
 def derived_answers(
@@ -50,4 +68,15 @@ def derived_answers(
         return answers
     if (m := MCP_TOOL.match(call.tool_name)) and m.group(1) not in first_party:
         return {UNTRUSTED_SOURCE: "yes"}
+    if call.basis != "content" and targets_test_config(call):
+        return {DATA_CLASS: "none"}
     return {}
+
+
+def targets_test_config(call: ParsedToolCall) -> bool:
+    """Whether a file tool's target, as its arguments name it, is a test-config file."""
+    for key in TARGET_ARGS.get(call.tool_name, ()):
+        value = call.args.get(key)
+        if isinstance(value, str) and PurePosixPath(value).name in TEST_CONFIG_NAMES:
+            return True
+    return False

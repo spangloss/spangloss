@@ -1068,3 +1068,84 @@ def test_test_config_names_match_between_taxonomy_and_the_data_class_card() -> N
         assert names == TEST_CONFIG_NAMES
         assert re.findall(r"\.env\.[a-z]+", rest) == NOT_TEST_CONFIG_NAMES
         assert "no such exemption" in rest
+
+
+def test_derived_test_config_names_match_taxonomy() -> None:
+    from spangloss.questions.derived import TEST_CONFIG_NAMES as DERIVED_NAMES
+
+    assert list(DERIVED_NAMES) == TEST_CONFIG_NAMES
+
+
+SECRETS = {
+    "data_class.sensitive": {"yes": 0.99, "no": 0.01},
+    "data_class": {"secrets": 0.99, "phi": 0.01},
+}
+
+
+def _data_class(c: ParsedToolCall) -> tuple[Any, set[str]]:
+    backend = FakeBackend(overrides=SECRETS)  # would answer secrets
+    labels = by_label(label_call(c, CARDS, backend))
+    asked = {qid for _, questions in backend.requests for qid in questions}
+    return labels.get("sec.data_class"), asked
+
+
+@pytest.mark.parametrize("name", TEST_CONFIG_NAMES)
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        ("Read", {"file_path": "/workspace/{name}"}),
+        ("Grep", {"pattern": "KEY", "path": "/workspace/{name}"}),
+        ("Grep", {"pattern": "KEY", "path": "/workspace", "glob": "{name}"}),
+        ("Glob", {"pattern": "**/{name}"}),
+    ],
+)
+def test_test_config_target_at_args_is_derived_none(
+    name: str, tool: str, args: dict[str, str]
+) -> None:
+    filled = {k: v.format(name=name) for k, v in args.items()}
+    label, asked = _data_class(call(tool_name=tool, args=filled, output=None))
+    assert (label.answer, label.p, label.model) == ("none", 1.0, "derived")
+    assert not asked & {"data_class.sensitive", "data_class"}
+
+
+def test_test_config_read_at_content_asks_the_card() -> None:
+    read = call(
+        tool_name="Read",
+        args={"file_path": "/workspace/.env.test"},
+        output="TALLOW_SECRET_KEY=tallow_test_x",
+    )
+    label, asked = _data_class(read)
+    assert (label.answer, label.model) == ("secrets", "fake/test")
+    assert "data_class.sensitive" in asked
+
+
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        *[("Read", {"file_path": f"/workspace/{n}"}) for n in NOT_TEST_CONFIG_NAMES],
+        ("Read", {"file_path": "/workspace/.env"}),
+        ("Read", {"file_path": "/workspace/.env.test.bak"}),
+        ("Glob", {"pattern": "**/.env*"}),  # also matches .env
+        ("Grep", {"pattern": "\\.env\\.test"}),  # a pattern is not a target
+        ("Grep", {"pattern": "KEY", "path": "/workspace"}),
+        ("Bash", {"command": "cat .env.test"}),  # commands can be compound
+        ("Write", {"file_path": "/workspace/.env.example", "content": "K=v"}),
+    ],
+)
+def test_other_targets_ask_the_card(tool: str, args: dict[str, str]) -> None:
+    label, asked = _data_class(call(tool_name=tool, args=args, output=None))
+    assert label.model == "fake/test"
+    assert "data_class.sensitive" in asked
+
+
+def test_test_config_derivation_respects_gating() -> None:
+    # data_class isn't asked at name_only, so nothing is derived there either.
+    bare = call(tool_name="Read", args={}, output=None, basis="name_only")
+    label, _ = _data_class(bare)
+    assert label is None
+
+
+def test_derived_data_class_is_written_once() -> None:
+    read = call(tool_name="Read", args={"file_path": "/w/.env.test"}, output=None)
+    outcome = label_call(read, CARDS, FakeBackend())
+    assert [x.label for x in outcome.labels].count("sec.data_class") == 1

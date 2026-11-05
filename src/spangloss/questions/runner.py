@@ -108,8 +108,9 @@ def label_call(
     derived = [
         _derived(call, card, answer)
         for label, answer in derived_answers(call, first_party_mcp_servers).items()
-        for card in cards
-        if card.label == label and card.applies_to(call.basis, has_incoming(call))
+        # A two-step label has two cards; its first card stands for it.
+        if (card := next((c for c in cards if c.label == label), None))
+        and card.applies_to(call.basis, has_incoming(call))
     ]
     decided = {x.label for x in derived}
     first_round = [
