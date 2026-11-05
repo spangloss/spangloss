@@ -56,6 +56,37 @@ Real sessions rarely contain the cases that matter most, such as a secret read o
 - **Vendor-neutral attributes.** Keys live under `sec.*`, not under the project's name.
 - **No raw session data in git.** Only redacted, labeled evaluation data is ever published.
 
+## Threat model & non-goals
+
+### "Aren't spans for debugging?"
+
+They started out that way. So did syslog, auditd, CloudTrail and VPC flow logs, which are now standard inputs for security monitoring. Where data comes from doesn't decide what it's good for.
+
+For AI agents, traces are the richest record available. A trace links the prompt, the model's output, each tool call and its result, and nests a subagent's calls under the call that spawned it. Spangloss labels each tool call from its own span today. Its first session-level rule, subagent taint, follows those parent/child links to flag a subagent that took in untrusted content. Rules that combine labels across a session, such as untrusted input followed by private-data access and then data leaving, build on the same structure.
+
+The line between debugging and security is blurry anyway. "Why did my agent delete that?" is a question for both.
+
+### What Spangloss is
+
+- A **visibility and detection layer**: it reads agent spans and adds security labels (glosses) that people and downstream tools can act on.
+- **Complementary** to OS-, network- and identity-level monitoring, not a replacement for it.
+
+### What Spangloss is not
+
+- **Not a control plane.** Spans are exported after the fact, in batches. Spangloss detects; it doesn't block. Preventing an action needs an inline hook in the agent runtime.
+- **Not an audit log or forensic source of truth.** The application emits its own spans, so they aren't tamper-evident. A compromised agent or broken instrumentation can drop or change them without anyone noticing.
+- **Not complete coverage.** Spangloss only sees what your agent framework instruments. Uninstrumented tools, subprocesses or side channels are blind spots. Some context the model reads never reaches the telemetry at all. With Claude Code today, that includes MCP tool descriptions and the contents of `CLAUDE.md` files. Instructions planted there can't be labeled directly. Their effects can still show up in later tool calls. Spangloss marks tool loads and MCP tool results as untrusted input, unless the server is on your `mcp.first_party_servers` allowlist (empty by default), so those calls carry the context. See [docs/findings/capture-gaps.md](docs/findings/capture-gaps.md) for the full list.
+
+### Deployment guidance
+
+- **Turn off sampling for agent spans.** Head or tail sampling is fine for performance tracing, but a dropped span is a missed detection. Send agent spans through their own pipeline if you need to keep sampling elsewhere.
+- **Treat span data as sensitive.** Prompts, tool arguments and tool output can contain secrets or personal data. Restrict access to wherever spans and glosses are stored. Observability backends are often more open than security tools.
+- **Set retention deliberately.** Tracing backends often keep data for days. If you need glosses for incident response, forward them somewhere with longer retention.
+- **Use the Jev backend if you need injection detection.** Kev doesn't report `sec.injection`: in testing it couldn't tell a poisoned dependency README from an ordinary file. With Kev, the label is left out rather than set to `no`. See [docs/findings/known-limitations.md](docs/findings/known-limitations.md).
+- **Keep `mcp.first_party_servers` short.** Results from servers on that list aren't treated as untrusted input. Add only servers you run or fully trust.
+- **Review agent instruction files and MCP servers yourself.** Because their contents aren't captured, a poisoned `CLAUDE.md` or tool description is invisible to Spangloss until it causes an action.
+- **Cross-check with independent telemetry** when the stakes are high, for example EDR, auditd or egress logs, which a compromised agent can't edit.
+
 ## Status
 
 Pre-v0. The first public release, with per-label evaluation results, is planned for November 29, 2026. Until then there are no published accuracy figures, and the taxonomy (now 0.3.2) can still change.
@@ -101,9 +132,9 @@ uv run spangloss import-sheet <sheet.csv>
 uv run spangloss score
 ```
 
-- **Kev** expects a local server at `127.0.0.1:8009`. In v0, Kev doesn't answer `sec.injection`: the label is reported as unsupported and not written, so use Jev for injection (see [docs/findings/known-limitations.md](docs/findings/known-limitations.md)).
+- **Kev** expects a local server at `127.0.0.1:8009`. In v0, `spangloss label` reports `sec.injection` as unsupported for Kev; see [Deployment guidance](#deployment-guidance).
 - **Jev** reads `TYPESAFE_API_KEY` from `.env`, which is git-ignored. Before sending a call, Jev's backend refuses any call that references `.env` files or contains a likely secret.
-- **Your own MCP servers:** every MCP server's tool descriptions and tool results are labeled `untrusted_source` yes, derived without asking a model, unless the server is on your allowlist. The allowlist is `mcp.first_party_servers` in `spangloss.toml` (copy `spangloss.example.toml`); it is empty by default.
+- **Your own MCP servers:** set `mcp.first_party_servers` in `spangloss.toml` (copy `spangloss.example.toml`). The `untrusted_source` label for these calls is derived in code, without asking a model; see [What Spangloss is not](#what-spangloss-is-not) and [Deployment guidance](#deployment-guidance).
 
 Seeded scenarios call the model API and need a dedicated, spend-limited key; see [docs/scenarios-design.md](docs/scenarios-design.md) before running them.
 
