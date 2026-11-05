@@ -89,17 +89,20 @@ The line between debugging and security is blurry anyway. "Why did my agent dele
 
 ## Status
 
-Pre-v0. The first public release, with per-label evaluation results, is planned for November 29, 2026. Until then there are no published accuracy figures, and the taxonomy (now 0.3.2) can still change.
+Pre-v0. The first public release, with per-label evaluation results, is planned for November 29, 2026. Until then there are no published accuracy figures.
+
+The taxonomy is **0.4.0, frozen for v0** (tag `taxonomy-v0.4.0`). Changes found after the freeze wait for a later version.
 
 What exists today:
 - capture and parsing for Claude Code;
 - the label cards, two backends and derived labels;
 - a DuckDB label store, the subagent taint rule and the scoring harness;
-- five seeded scenarios: secrets read, web-page injection through WebFetch and through curl, tainted delegation and a poisoned dependency.
+- seven seeded scenarios: secrets read, web-page injection through WebFetch and through curl, tainted delegation, a poisoned dependency, hard negatives (look-alike cases that should not be flagged; local only, not published) and tool poisoning through an MCP tool description.
 
 Known limits:
-- **Claude Code's telemetry has gaps** that bound what any label can see. Grep and Glob output, subagent handback content and MCP tool descriptions are not captured; long arguments are cut; and WebFetch output is a model's summary of the page. Tool poisoning through MCP tool descriptions is therefore invisible today. Details and evidence are in [docs/findings/capture-gaps.md](docs/findings/capture-gaps.md).
-- **The evaluation sets are still small,** and injection positives come from few call shapes.
+- **Claude Code's telemetry has gaps** that bound what any label can see. Six are documented: Grep and Glob output, subagent handback content, MCP tool descriptions and a workspace `CLAUDE.md` are not captured; long arguments are cut; and WebFetch output is a model's summary of the page. Tool poisoning through MCP tool descriptions and a poisoned `CLAUDE.md` are therefore invisible today. Details and evidence are in [docs/findings/capture-gaps.md](docs/findings/capture-gaps.md).
+- **The labelers have known weaknesses:** Kev doesn't answer `sec.injection` in v0, and `sec.data_class` `secrets` has low precision for both backends. Details are in [docs/findings/known-limitations.md](docs/findings/known-limitations.md).
+- **The evaluation sets are still small** (20 hand-labeled real calls, 111 scenario calls), and injection positives come from few call shapes.
 - **Claude Code is the only agent adapter.**
 
 Current work and next steps are tracked in [docs/STATUS.md](docs/STATUS.md).
