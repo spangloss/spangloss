@@ -8,7 +8,7 @@ from spangloss import cli
 from spangloss.parse import ParsedToolCall
 from spangloss.parse.record import basis_for
 from spangloss.questions.runner import Label
-from spangloss.rules import Finding, subagent_taint
+from spangloss.rules import RULES, Finding, subagent_taint
 from spangloss.store import LabelStore
 
 UNTRUSTED = "sec.trifecta.untrusted_source"
@@ -249,3 +249,83 @@ def test_stores_from_before_handbacks_were_named_gain_the_column(
         assert store.findings() == [
             ("subagent_taint", "back_out", "session-1", ["fetch"], "kev", [])
         ]
+
+
+# --- a missing label is not "no" ---------------------------------------------
+
+INJECTION = "sec.injection"
+KEV = "kev/kev-latest"
+
+
+def _kev_answers(injection: dict[str, str] | None, tmp_path: Path) -> dict:
+    """A trifecta session labeled by Kev through the store: the fetch is untrusted
+    and a sink, the read is private. injection maps span -> answer; None leaves it
+    out, as Kev's labels do (backends/support.py)."""
+    trifecta = {
+        "read": {"sec.trifecta.private_source": "yes"},
+        "fetch": {UNTRUSTED: "yes", "sec.trifecta.sink": "yes"},
+        "search": {UNTRUSTED: "yes", "sec.trifecta.sink": "yes"},
+    }
+    rows = []
+    for c in SESSION:
+        labels = dict(trifecta.get(c.span_id, {}))
+        if injection is not None and c.span_id in injection:
+            labels[INJECTION] = injection[c.span_id]
+        for label, answer in labels.items():
+            rows.append(
+                Label(
+                    c.span_id,
+                    "session-1",
+                    label,
+                    answer,
+                    0.9,
+                    "content",
+                    KEV,
+                    "0.4.0",
+                    False,
+                    None,
+                    1,
+                )
+            )
+    db = tmp_path / f"labels-{len(list(tmp_path.iterdir()))}.duckdb"
+    with LabelStore(db) as store:
+        store.write(rows)
+        return store.answers(KEV)
+
+
+def reads_missing_injection_as_no(rule, tmp_path: Path) -> bool:
+    """True when the rule depends on sec.injection and gives a call with injection
+    missing the same result as injection no."""
+    incoming = ("fetch", "search", "back_in", "back_out")
+    absent = rule(SESSION, _kev_answers(None, tmp_path))
+    no = rule(SESSION, _kev_answers(dict.fromkeys(incoming, "no"), tmp_path))
+    for span in incoming:
+        yes = dict.fromkeys(incoming, "no") | {span: "yes"}
+        if rule(SESSION, _kev_answers(yes, tmp_path)) != no:  # injection matters
+            return absent == no
+    return False
+
+
+@pytest.mark.parametrize("name", sorted(RULES))
+def test_no_rule_reads_a_missing_injection_as_no(name: str, tmp_path: Path) -> None:
+    assert not reads_missing_injection_as_no(RULES[name], tmp_path)
+
+
+def test_the_check_catches_a_rule_that_reads_missing_as_no(tmp_path: Path) -> None:
+    def careless(calls, answers):  # treats a missing injection as no
+        return [
+            Finding("careless", c.span_id, c.session_id, (c.span_id,))
+            for c in calls
+            if answers.get(c.span_id, {}).get(INJECTION, "no") == "yes"
+        ]
+
+    def careful(calls, answers):  # a missing injection is unknown, flagged as such
+        return [
+            Finding("careful", c.span_id, c.session_id, (c.span_id,))
+            for c in calls
+            if answers.get(c.span_id, {}).get(INJECTION) in ("yes", None)
+            and c.tool_name in ("WebFetch", "WebSearch")
+        ]
+
+    assert reads_missing_injection_as_no(careless, tmp_path)
+    assert not reads_missing_injection_as_no(careful, tmp_path)
