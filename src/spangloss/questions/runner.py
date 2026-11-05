@@ -16,6 +16,8 @@
 - Evidence goes only in the request's state, never in a question.
 - Labels the call's structure decides (questions/derived.py) are written with
   p 1.0 and model "derived", and their cards are not asked.
+- Labels the backend does not answer (backends/support.py) are not asked and not
+  written; the outcome lists them as unsupported.
 - A two-step label (data_class) asks step 2 only when step 1 is yes, and only for
   the chunks whose step 1 was yes. It stores p(no) for none, or p(yes) x p(class)
   for a class, taking the most severe class across chunks.
@@ -33,6 +35,7 @@ from spangloss.backends.base import (
     QuestionSpec,
     RequestRejected,
 )
+from spangloss.backends.support import unsupported_labels
 from spangloss.parse.record import ParsedToolCall
 from spangloss.questions.cards import Card
 from spangloss.questions.derived import DERIVED_MODEL, derived_answers
@@ -93,6 +96,8 @@ class ChunkAnswer:
 class Outcome:
     labels: list[Label]
     skipped: str | None = None  # why nothing was labeled
+    # Labels that would have been asked but the backend does not answer.
+    unsupported: tuple[str, ...] = ()
 
 
 def label_call(
@@ -105,21 +110,18 @@ def label_call(
     if reason := backend.screen(call):
         return Outcome([], skipped=reason)
 
-    derived = [
-        _derived(call, card, answer)
-        for label, answer in derived_answers(call, first_party_mcp_servers).items()
-        # A two-step label has two cards; its first card stands for it.
-        if (card := next((c for c in cards if c.label == label), None))
-        and card.applies_to(call.basis, has_incoming(call))
-    ]
+    derived = derived_labels(call, cards, first_party_mcp_servers)
     decided = {x.label for x in derived}
-    first_round = [
+    applicable = [
         c
         for c in cards
         if c.applies_to(call.basis, has_incoming(call))
         and c.step != 2
         and c.label not in decided
     ]
+    unsupported = unsupported_labels(backend.model)
+    first_round = [c for c in applicable if c.label not in unsupported]
+    not_asked = tuple(c.label for c in applicable if c.label in unsupported)
     try:
         results = _ask_grouped(call, first_round, backend, max_evidence_chars)
         labels = [
@@ -136,7 +138,20 @@ def label_call(
             )
     except RequestRejected as e:  # includes EvidenceTooLong
         return Outcome([], skipped=str(e))
-    return Outcome(derived + labels)
+    return Outcome(derived + labels, unsupported=not_asked)
+
+
+def derived_labels(
+    call: ParsedToolCall, cards: list[Card], first_party_mcp_servers: frozenset[str]
+) -> list[Label]:
+    """The labels the call's structure decides, where their cards would be asked."""
+    return [
+        _derived(call, card, answer)
+        for label, answer in derived_answers(call, first_party_mcp_servers).items()
+        # A two-step label has two cards; its first card stands for it.
+        if (card := next((c for c in cards if c.label == label), None))
+        and card.applies_to(call.basis, has_incoming(call))
+    ]
 
 
 def question_spec(card: Card) -> QuestionSpec:

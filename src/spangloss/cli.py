@@ -472,8 +472,10 @@ def _label(
         todo = [c for c in calls if c.span_id not in done][:limit]
         written = 0
         skipped = 0
+        unsupported: Counter[str] = Counter()
         for call in todo:
             outcome = label_call(call, cards, backend, max_chars, first_party)
+            unsupported.update(outcome.unsupported)
             if outcome.skipped:
                 skipped += 1
                 log.info(
@@ -491,6 +493,11 @@ def _label(
         f" {written} labels written to {db}",
         file=sys.stderr,
     )
+    for label, n in sorted(unsupported.items()):
+        print(
+            f"{backend.model}: {label} unsupported, not asked on {n} call(s)",
+            file=sys.stderr,
+        )
     return 0
 
 

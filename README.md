@@ -101,7 +101,7 @@ uv run spangloss import-sheet <sheet.csv>
 uv run spangloss score
 ```
 
-- **Kev** expects a local server at `127.0.0.1:8009`.
+- **Kev** expects a local server at `127.0.0.1:8009`. In v0, Kev doesn't answer `sec.injection`: the label is reported as unsupported and not written, so use Jev for injection (see [docs/findings/known-limitations.md](docs/findings/known-limitations.md)).
 - **Jev** reads `TYPESAFE_API_KEY` from `.env`, which is git-ignored. Before sending a call, Jev's backend refuses any call that references `.env` files or contains a likely secret.
 - **Your own MCP servers:** every MCP server's tool descriptions and tool results are labeled `untrusted_source` yes, derived without asking a model, unless the server is on your allowlist. The allowlist is `mcp.first_party_servers` in `spangloss.toml` (copy `spangloss.example.toml`); it is empty by default.
 

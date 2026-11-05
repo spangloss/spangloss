@@ -246,3 +246,32 @@ def test_unknown_shapes_count_as_their_own(results: dict) -> None:
     effect = by_label(results["fake/m"])[EFFECT]
     assert effect.shapes == effect.n  # no shapes given: every record is unique
     assert effect.shape_accuracy == pytest.approx(effect.accuracy)
+
+
+# --- unsupported labels ------------------------------------------------------
+
+
+def test_a_label_the_backend_does_not_answer_is_reported_unsupported() -> None:
+    rows = [
+        stored("g1", EFFECT, "read", 0.9, model="kev/kev-latest"),
+        stored("g1", INJECTION, "yes", 0.6, model="kev/kev-latest"),  # ignored
+        stored("g1", INJECTION, "no", 0.9, model="jev/jev-latest"),
+    ]
+    out = {r.model: r for r in score(GOLD, rows, CARDS)}
+    kev = by_label(out["kev/kev-latest"])
+    assert kev[INJECTION].unsupported and kev[INJECTION].n == 0
+    assert kev[INJECTION].missing is None
+    assert not kev[EFFECT].unsupported
+    jev = by_label(out["jev/jev-latest"])
+    assert not jev[INJECTION].unsupported and jev[INJECTION].n == 1
+    report = format_report(list(out.values()), len(GOLD))
+    assert f"{INJECTION:<30} unsupported by this backend" in report
+
+
+def test_unsupported_labels_are_keyed_by_backend_name() -> None:
+    from spangloss.backends.support import unsupported_labels
+
+    assert unsupported_labels("kev/kev-latest") == {INJECTION}
+    assert unsupported_labels("kev/some-other-build") == {INJECTION}
+    assert unsupported_labels("jev/jev-latest") == frozenset()
+    assert unsupported_labels("derived") == frozenset()

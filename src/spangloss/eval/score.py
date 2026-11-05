@@ -8,6 +8,8 @@ expected calibration error. Results are also broken down by basis.
 - A label whose taxonomy differs from its gold record's is skipped and counted.
 - Gold labels a model never produced are counted as missing, not scored. Derived
   labels cover only what the parser decides, so they have no missing count.
+- A label the model's backend does not answer (backends/support.py) is reported
+  as unsupported: any stored rows for it are ignored and nothing counts as missing.
 - p is the probability of the chosen answer (TAXONOMY.md Labeling rule 6), so
   calibration compares it with whether that answer was right. ECE uses ECE_BINS
   equal-width bins; with few calls it is only indicative.
@@ -21,10 +23,11 @@ expected calibration error. Results are also broken down by basis.
 
 from collections import Counter, defaultdict
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from math import sqrt
 from typing import Any
 
+from spangloss.backends.support import unsupported_labels
 from spangloss.questions.cards import Card
 from spangloss.questions.derived import DERIVED_MODEL
 
@@ -73,6 +76,7 @@ class LabelScore:
     ece: float | None
     by_basis: dict[str, tuple[int, int]]  # basis -> (n, correct)
     missing: int | None  # gold labels with no model label; None for derived
+    unsupported: bool = False  # the backend does not answer this label
 
 
 @dataclass(slots=True)
@@ -98,9 +102,12 @@ def score(
     results = []
     for model in sorted(by_model, key=lambda m: (m == DERIVED_MODEL, m)):
         result = ModelScore(model)
+        unsupported = unsupported_labels(model)
         pairs: dict[str, list[Pair]] = defaultdict(list)
         seen: set[tuple[str, str]] = set()  # scored or skipped
         for x in by_model[model]:
+            if x.label in unsupported:
+                continue
             record = gold_by_span.get(x.span_id)
             if record is None or x.label not in record["labels"]:
                 continue
@@ -122,6 +129,11 @@ def score(
         if model != DERIVED_MODEL:
             wanted |= {label for r in gold for label in r["labels"]}
         for label in _label_order(cards, wanted):
+            if label in unsupported:
+                result.labels.append(
+                    replace(_score_label(label, [], [], None), unsupported=True)
+                )
+                continue
             missing = None
             if model != DERIVED_MODEL:
                 missing = sum(
@@ -181,6 +193,9 @@ def format_report(results: list[ModelScore], gold_calls: int) -> str:
             f" {'acc/shape':>9} {'ECE':>6} {'missing':>8}"
         )
         for s in result.labels:
+            if s.unsupported:
+                lines.append(f"{s.label:<30} unsupported by this backend")
+                continue
             missing = "-" if s.missing is None else str(s.missing)
             ece = f"{'-':>6}" if s.ece is None else f"{s.ece:>6.3f}"
             lines.append(
@@ -191,7 +206,7 @@ def format_report(results: list[ModelScore], gold_calls: int) -> str:
         if bases:
             lines += ["", "accuracy by basis (correct/n)"]
             lines.append(f"{'label':<30} " + " ".join(f"{b:>10}" for b in bases))
-            for s in result.labels:
+            for s in (s for s in result.labels if not s.unsupported):
                 cells = []
                 for b in bases:
                     n, correct = s.by_basis.get(b, (0, 0))

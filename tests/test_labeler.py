@@ -1149,3 +1149,60 @@ def test_derived_data_class_is_written_once() -> None:
     read = call(tool_name="Read", args={"file_path": "/w/.env.test"}, output=None)
     outcome = label_call(read, CARDS, FakeBackend())
     assert [x.label for x in outcome.labels].count("sec.data_class") == 1
+
+
+# --- unsupported labels ------------------------------------------------------
+
+
+class KevFake(FakeBackend):
+    def __init__(self) -> None:
+        super().__init__(overrides={"injection": {"yes": 0.99, "no": 0.01}})
+        self.name = "kev"
+        self.model = "kev/kev-latest"
+
+
+def test_kev_does_not_ask_or_write_injection() -> None:
+    fetched = call(
+        tool_name="WebFetch", args={"url": "https://docs.example/x"}, output=UNTRUSTED
+    )
+    kev = KevFake()
+    outcome = label_call(fetched, CARDS, kev)
+    assert "sec.injection" not in by_label(outcome)
+    assert outcome.unsupported == ("sec.injection",)
+    asked = {qid for _, questions in kev.requests for qid in questions}
+    assert "injection" not in asked
+    assert {"effect", "intent", "trifecta.sink"} <= asked  # the rest is still asked
+
+
+def test_unsupported_lists_only_labels_that_would_be_asked() -> None:
+    # No incoming content, so injection wouldn't be asked anyway.
+    write = call(
+        tool_name="Write", args={"file_path": "/w/x", "content": "hi"}, output=None
+    )
+    assert label_call(write, CARDS, KevFake()).unsupported == ()
+
+
+def test_other_backends_still_answer_injection() -> None:
+    fetched = call(tool_name="WebFetch", args={"url": "https://x"}, output="text")
+    outcome = label_call(fetched, CARDS, FakeBackend())
+    assert "sec.injection" in by_label(outcome) and outcome.unsupported == ()
+
+
+def test_cli_label_reports_unsupported_labels(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parsed = tmp_path / "tool_calls.jsonl"
+    fetched = call(tool_name="WebFetch", args={"url": "https://x"}, output="text")
+    parsed.write_text(json.dumps(fetched.to_dict()) + "\n")
+    db = tmp_path / "labels.duckdb"
+    monkeypatch.setattr(cli, "make_backend", lambda name: KevFake())
+    args = ["label", "--backend", "kev", "--limit", "1", "--input", str(parsed)]
+    assert cli.main([*args, "--db", str(db), "--config", str(tmp_path / "x")]) == 1
+    assert cli.main([*args, "--db", str(db)]) == 0
+    assert (
+        "sec.injection unsupported, not asked on 1 call(s)" in capsys.readouterr().err
+    )
+    with LabelStore(db) as store:
+        assert all(r[2] != "sec.injection" for r in store.rows())
