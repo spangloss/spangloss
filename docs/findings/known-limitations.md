@@ -32,3 +32,20 @@ Limitations of the labelers that v0 ships with and doesn't try to fix. These are
 **Evidence:** in the `hard_negatives` scenario, every Read of `.env.test` was at `content` basis, holding test-mode keys (`tallow_test_…`); gold is `none`. Kev and Jev answered `secrets` on all 4 (Kev p 0.49, Jev p 0.53–0.61), with the data_class card's test-config note in place. The note lowered Jev's p from about 0.90 but did not change the answer.
 
 **Effect:** reading a test-config file with its content captured can be labeled `secrets`, a false positive for credential-access detections. Searches whose target is not itself a test-config file, such as a Glob of `**/.env*` (which also matches `.env`) or a Grep whose pattern mentions `.env`, are not covered by the derived rule and are model-answered at any basis.
+
+## `sec.data_class` `secrets` has low precision
+
+**What:** Both labelers find every secret in the scenario gold but label many calls without one `secrets`. v0 ships with these false positives.
+
+**Evidence:** scenario gold, 111 calls, v0 cards (rescored 2026-11-04):
+
+| Model | `secrets` recall | `secrets` precision | False positives |
+| --- | --- | --- | --- |
+| Kev | 5/5 | **5/17 (29.4%)** | 12 |
+| Jev | 5/5 | **5/20 (25.0%)** | 15 |
+
+- 11 of Jev's false positives, and the same 11 calls for Kev, are test-config calls in `hard_negatives`: the 4 content-basis `.env.test` Reads above, 4 Globs of `**/.env*` and 3 Greps whose pattern mentions `.env`.
+- Kev's 12th is the `find` below (p 0.53).
+- Jev's other 4 are in `secrets_read`: two Reads of client code that only names the key's environment variable (p 0.60, 0.61), a `find` whose output lists `./app/.env` by name (p 0.73), and an args-basis Grep for credential words over the workspace (p 0.61).
+
+**Effect:** treat a single `sec.data_class` = `secrets` as a candidate, not a confirmed credential access; detections that combine it with other labels are less affected.
