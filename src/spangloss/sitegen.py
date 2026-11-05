@@ -12,8 +12,9 @@ Everything except `asks_about` comes from TAXONOMY.md or from code:
   when code decides some calls (questions/derived.py) and the labeler the rest.
 - backends: which backends report the label (backends/support.py).
 
-`asks_about` is a one-line summary that TAXONOMY.md doesn't hold. The proposals
-below are not the owner's wording until approved; the JSON marks their status.
+`asks_about` is a one-line summary that TAXONOMY.md doesn't hold: the owner's
+wording, approved 2026-11-04. A new or changed summary is "proposed" until the owner
+approves it; each entry carries its status.
 """
 
 import argparse
@@ -29,28 +30,28 @@ from spangloss.questions.derived import DERIVED_LABELS
 TAXONOMY = Path("TAXONOMY.md")
 OUTPUT = Path("site/labels.json")
 TRIFECTA = "sec.trifecta"
-OWNER_TO_WRITE = "[owner to write]"
 MAX_SUMMARY_WORDS = 12
 
-# Proposed, not approved (status "proposed" in the JSON).
+# Approved by the owner (2026-11-04).
 ASKS_ABOUT: dict[str, str] = {
     "sec.effect": "What the call does to the systems it touches",
-    "sec.reversibility": "Whether the call's effects could be undone if it was a mistake",
+    "sec.reversibility": "Whether the call's effects could be undone",
     "sec.data_class": "Whether the call touches sensitive data, and which kind",
-    TRIFECTA: OWNER_TO_WRITE,
+    TRIFECTA: "Three yes/no checks: private data, untrusted input, and a way out.",
     "sec.trifecta.private_source": "Whether the call accesses data that isn't public",
     "sec.trifecta.untrusted_source": (
         "Whether the call brings in content from outside the user's control"
     ),
     "sec.trifecta.sink": (
-        "Whether the call sends data off the machine, to an unconfirmed destination"
+        "Whether the call sends data off the machine to an unconfirmed destination"
     ),
     "sec.intent": "What the call is for, as a category",
     "sec.injection": (
-        "Whether incoming content tries to steer the agent beyond its purpose"
+        "Whether incoming content tries to direct the agent beyond the content's purpose"
     ),
 }
-ASKS_ABOUT_STATUS = "proposed"
+# Labels whose summary awaits the owner's approval; empty when all are approved.
+PROPOSED: frozenset[str] = frozenset()
 
 BASES = ("name_only", "args", "content")
 
@@ -74,7 +75,6 @@ def generate(text: str) -> dict[str, Any]:
         "taxonomy": version,
         "generated_from": "TAXONOMY.md",
         "generator": "python -m spangloss.sitegen",
-        "asks_about_status": ASKS_ABOUT_STATUS,
         "labels": labels,
     }
 
@@ -88,6 +88,7 @@ def _entry(name: str, answers: list[str], gate: tuple[str, str]) -> dict[str, An
     return {
         "name": name,
         "asks_about": _summary(name),
+        "asks_about_status": _status(name),
         "answers": answers,
         "min_basis": min_basis,
         "asked_when": asked_when,
@@ -110,6 +111,7 @@ def _trifecta(body: str, gating: dict[str, tuple[str, str]]) -> dict[str, Any]:
     return {
         "name": TRIFECTA,
         "asks_about": _summary(TRIFECTA),
+        "asks_about_status": _status(TRIFECTA),
         "min_basis": min_basis,
         "asked_when": asked_when,
         "sub_labels": [_entry(n, ["yes", "no"], gate) for n in names],
@@ -121,9 +123,13 @@ def _summary(name: str) -> str:
         summary = ASKS_ABOUT[name]
     except KeyError:
         raise TaxonomyError(f"{name}: no asks_about summary") from None
-    if summary != OWNER_TO_WRITE and len(summary.split()) > MAX_SUMMARY_WORDS:
+    if len(summary.split()) > MAX_SUMMARY_WORDS:
         raise TaxonomyError(f"{name}: asks_about is over {MAX_SUMMARY_WORDS} words")
     return summary
+
+
+def _status(name: str) -> str:
+    return "proposed" if name in PROPOSED else "approved"
 
 
 def _version(text: str) -> str:

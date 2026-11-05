@@ -2,11 +2,11 @@
   "taxonomy": "0.4.0",
   "generated_from": "TAXONOMY.md",
   "generator": "python -m spangloss.sitegen",
-  "asks_about_status": "proposed",
   "labels": [
     {
       "name": "sec.effect",
       "asks_about": "What the call does to the systems it touches",
+      "asks_about_status": "approved",
       "answers": [
         "read",
         "write",
@@ -27,7 +27,8 @@
     },
     {
       "name": "sec.reversibility",
-      "asks_about": "Whether the call's effects could be undone if it was a mistake",
+      "asks_about": "Whether the call's effects could be undone",
+      "asks_about_status": "approved",
       "answers": [
         "reversible",
         "recoverable",
@@ -47,6 +48,7 @@
     {
       "name": "sec.data_class",
       "asks_about": "Whether the call touches sensitive data, and which kind",
+      "asks_about_status": "approved",
       "answers": [
         "none",
         "secrets",
@@ -67,13 +69,15 @@
     },
     {
       "name": "sec.trifecta",
-      "asks_about": "[owner to write]",
+      "asks_about": "Three yes/no checks: private data, untrusted input, and a way out.",
+      "asks_about_status": "approved",
       "min_basis": "name_only",
       "asked_when": "Always (name_only or above); at name_only, from the tool's documented behavior",
       "sub_labels": [
         {
           "name": "sec.trifecta.private_source",
           "asks_about": "Whether the call accesses data that isn't public",
+          "asks_about_status": "approved",
           "answers": [
             "yes",
             "no"
@@ -92,6 +96,7 @@
         {
           "name": "sec.trifecta.untrusted_source",
           "asks_about": "Whether the call brings in content from outside the user's control",
+          "asks_about_status": "approved",
           "answers": [
             "yes",
             "no"
@@ -109,7 +114,8 @@
         },
         {
           "name": "sec.trifecta.sink",
-          "asks_about": "Whether the call sends data off the machine, to an unconfirmed destination",
+          "asks_about": "Whether the call sends data off the machine to an unconfirmed destination",
+          "asks_about_status": "approved",
           "answers": [
             "yes",
             "no"
@@ -130,6 +136,7 @@
     {
       "name": "sec.intent",
       "asks_about": "What the call is for, as a category",
+      "asks_about_status": "approved",
       "answers": [
         "retrieve",
         "explore",
@@ -154,7 +161,8 @@
     },
     {
       "name": "sec.injection",
-      "asks_about": "Whether incoming content tries to steer the agent beyond its purpose",
+      "asks_about": "Whether incoming content tries to direct the agent beyond the content's purpose",
+      "asks_about_status": "approved",
       "answers": [
         "yes",
         "no"

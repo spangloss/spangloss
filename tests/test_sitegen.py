@@ -99,11 +99,13 @@ def test_source_and_backends() -> None:
     }
 
 
-def test_the_trifecta_summary_is_left_to_the_owner() -> None:
+def test_every_summary_is_approved_and_short() -> None:
     data = generate(TEXT)
+    entries = [*data["labels"], *_flat(data).values()]
+    assert all(e["asks_about_status"] == "approved" for e in entries)
+    assert all(len(e["asks_about"].split()) <= 12 for e in entries)
     [trifecta] = [e for e in data["labels"] if e["name"] == "sec.trifecta"]
-    assert trifecta["asks_about"] == "[owner to write]"
-    assert data["asks_about_status"] == "proposed"
+    assert trifecta["asks_about"].startswith("Three yes/no checks")
 
 
 def test_a_new_label_without_a_summary_fails() -> None:
