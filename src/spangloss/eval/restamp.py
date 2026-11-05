@@ -15,14 +15,17 @@ and skipped by score as a version mismatch until they are relabeled by hand.
 """
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from spangloss.eval.sheet import check_blanks, read_gold
+from spangloss.parse.claude_code import MCP_TOOL, TOOL_LOADING
 from spangloss.parse.record import ParsedToolCall
 from spangloss.questions.cards import Card
+from spangloss.questions.derived import TEST_CONFIG_NAMES
 from spangloss.questions.incoming import RETURN_PATH_ARGS
 from spangloss.rules.subagent_taint import SPAWN_TOOLS
 
@@ -33,6 +36,9 @@ class Change:
 
     summary: str
     affects: Callable[[dict[str, Any]], bool]
+    # For changes that depend on the call itself (its arguments or output); asked
+    # only when the record's call is in the parsed calls.
+    affects_call: Callable[[dict[str, Any], ParsedToolCall], bool] | None = None
 
 
 # TAXONOMY.md changelog entries, keyed by (from, to). A record more than one
@@ -80,7 +86,56 @@ CHANGES: dict[tuple[str, str], list[Change]] = {
             ),
         ),
     ],
+    ("0.3.2", "0.4.0"): [
+        Change(
+            "sec.injection question and answers reworded to the v0 card; the 0.3.2"
+            " definitions are kept as notes, so no answer changes",
+            lambda r: False,
+        ),
+        Change(
+            "test-config names (.env.test, .env.example, .env.sample, .env.template)"
+            " are data_class none unless content shows a real secret; affects a"
+            " record that isn't none and whose call names one",
+            lambda r: False,
+            lambda r, c: (
+                r["labels"].get("sec.data_class", "none") != "none"
+                and any(n in _text(c) for n in TEST_CONFIG_NAMES)
+            ),
+        ),
+        Change(
+            "keys whose prefix marks them as test-mode are data_class none; affects a"
+            " record that isn't none and whose call shows a *_test_ value",
+            lambda r: False,
+            lambda r, c: (
+                r["labels"].get("sec.data_class", "none") != "none"
+                and TEST_MODE_KEY.search(_text(c)) is not None
+            ),
+        ),
+        Change(
+            "tool search and tool loading are intent other",
+            lambda r: (
+                r["tool_name"] in TOOL_LOADING
+                and r["labels"].get("sec.intent", "other") != "other"
+            ),
+        ),
+        Change(
+            "untrusted_source is derived for MCP tool results, yes unless the server"
+            " is first-party; affects an MCP tool record that isn't yes",
+            lambda r: (
+                MCP_TOOL.match(r["tool_name"]) is not None
+                and r["labels"].get("sec.trifecta.untrusted_source", "yes") != "yes"
+            ),
+        ),
+    ],
 }
+
+# A value whose prefix marks it as test-mode, such as sk_test_ or tallow_test_.
+TEST_MODE_KEY = re.compile(r"[A-Za-z0-9]+_test_[A-Za-z0-9_]")
+
+
+def _text(call: ParsedToolCall) -> str:
+    return json.dumps(call.args, ensure_ascii=False) + (call.output or "")
+
 
 # Tools whose captured output is written by a model (a summary or a report), so it
 # can be a report of ignored instructions. Raw output, such as curl's, can't be.
@@ -138,8 +193,13 @@ def restamp(
             other += 1
             out.append(record)
             continue
-        reasons = [c.summary for c in changes if c.affects(record)]
         call = by_id.get(record["span_id"])
+        reasons = [
+            c.summary
+            for c in changes
+            if c.affects(record)
+            or (call is not None and c.affects_call and c.affects_call(record, call))
+        ]
         if call is None:
             reasons.append("not in the parsed calls, so gating can't be rechecked")
         else:

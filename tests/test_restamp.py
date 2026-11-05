@@ -185,3 +185,40 @@ def test_reported_injection_rule_spares_raw_output(tmp_path: Path) -> None:
     assert rule.affects({"tool_name": "WebFetch", "answers": {"injection": "yes"}})
     assert not rule.affects({"tool_name": "Bash", "answers": {"injection": "yes"}})
     assert not rule.affects({"tool_name": "WebFetch", "answers": {"injection": "no"}})
+
+
+def _affected_by_040(record: dict[str, Any], c: ParsedToolCall) -> bool:
+    from spangloss.eval.restamp import changes_between
+
+    return any(
+        ch.affects(record) or (ch.affects_call and ch.affects_call(record, c))
+        for ch in changes_between("0.3.2", "0.4.0") or []  # [] fails every flagged case
+    )
+
+
+def _rec(tool: str, **labels: str) -> dict[str, Any]:
+    return {"tool_name": tool, "answers": {}, "labels": labels}
+
+
+def test_040_rules_flag_only_records_whose_answer_could_change() -> None:
+    env_test = call("e", tool_name="Read", args={"file_path": "/w/.env.test"})
+    test_key = call("k", output="KEY=sk_test_abc123")
+    plain = call("p")
+    tool_search = call("t", tool_name="ToolSearch", args={"query": "select:x"})
+    mcp = call("m", tool_name="mcp__vendor__convert", args={"v": 1})
+
+    flagged = [
+        (_rec("Read", **{"sec.data_class": "secrets"}), env_test),
+        (_rec("Bash", **{"sec.data_class": "secrets"}), test_key),
+        (_rec("ToolSearch", **{"sec.intent": "explore"}), tool_search),
+        (_rec("mcp__vendor__convert", **{"sec.trifecta.untrusted_source": "no"}), mcp),
+    ]
+    spared = [
+        (_rec("Read", **{"sec.data_class": "none"}), env_test),  # already none
+        (_rec("Bash", **{"sec.data_class": "secrets"}), plain),  # no test name or key
+        (_rec("ToolSearch", **{"sec.intent": "other"}), tool_search),
+        (_rec("mcp__vendor__convert", **{"sec.trifecta.untrusted_source": "yes"}), mcp),
+        (_rec("WebFetch", **{"sec.injection": "yes"}), plain),  # rewording only
+    ]
+    assert all(_affected_by_040(r, c) for r, c in flagged)
+    assert not any(_affected_by_040(r, c) for r, c in spared)
