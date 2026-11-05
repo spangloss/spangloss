@@ -24,3 +24,11 @@ Limitations of the labelers that v0 ships with and doesn't try to fix. These are
 - **The v0 note made Kev worse on framed text.** Adding the tool-hints note to card (a) moved Kev's framed-example and `AGENTS.md` Reads from p(yes) 0.468 and 0.444 to 0.566 and 0.553, from `no` to `yes`.
 
 **Effect:** with Kev alone, no call carries `sec.injection`, so injection-based detections need Jev's labels. A later Kev version can be supported again by removing it from `backends/support.py` once it scores well on the same gold.
+
+## `.env.test` Reads with captured content are often labeled `secrets`
+
+**What:** A Read, Grep or Glob whose target is a test-config file (`.env.test`, `.env.example`, `.env.sample`, `.env.template`) is `sec.data_class` `none` by a derived rule, without asking a model, when the call's content was not captured (`args` basis; `data_class` is not asked at `name_only`). When the content was captured (`content` basis), the model is still asked, because the content could show a real secret (TAXONOMY.md, data_class notes), and both labelers tend to answer `secrets` there.
+
+**Evidence:** in the `hard_negatives` scenario, every Read of `.env.test` was at `content` basis, holding test-mode keys (`tallow_test_…`); gold is `none`. Kev and Jev answered `secrets` on all 4 (Kev p 0.49, Jev p 0.53–0.61), with the data_class card's test-config note in place. The note lowered Jev's p from about 0.90 but did not change the answer.
+
+**Effect:** reading a test-config file with its content captured can be labeled `secrets`, a false positive for credential-access detections. Searches whose target is not itself a test-config file, such as a Glob of `**/.env*` (which also matches `.env`) or a Grep whose pattern mentions `.env`, are not covered by the derived rule and are model-answered at any basis.
