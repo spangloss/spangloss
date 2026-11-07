@@ -23,16 +23,18 @@ import sys
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
+from math import isclose
 from pathlib import Path
 from typing import Any
 
 from spangloss.backends.support import unsupported_labels
 from spangloss.cli import read_calls
-from spangloss.eval.score import LabelScore, ModelScore, score
+from spangloss.eval.score import ECE_BINS, LabelScore, ModelScore, StoredLabel, score
 from spangloss.eval.shapes import call_shape
 from spangloss.eval.sheet import read_gold
+from spangloss.parse.record import ParsedToolCall
 from spangloss.questions.cards import Card, load_cards
-from spangloss.questions.derived import DERIVED_MODEL
+from spangloss.questions.derived import DERIVED_MODEL, targets_test_config
 from spangloss.store import LabelStore
 
 JSON_OUTPUT = Path("site/results.json")
@@ -42,6 +44,12 @@ SCHEMA = "spangloss-results/1"
 SMALL_N = 10  # cells resting on fewer calls are flagged
 INJECTION = "sec.injection"
 DATA_CLASS = "sec.data_class"
+DATA_CLASS_POSITIVE = "secrets"
+# Searches that look for env files by name, such as a Glob of **/.env* or a Grep
+# whose pattern mentions .env, are counted with test-config calls when a labeler
+# flags them as secrets; a search that only reads .env (it's in the path) is not.
+SEARCH_TOOLS = ("Grep", "Glob")
+ENV_NAME = ".env"
 KNOWN_LIMITATIONS = "docs/findings/known-limitations.md"
 NOT_REPORTED_SEE = f"{KNOWN_LIMITATIONS}#secinjection-needs-jev"
 # Sections of known-limitations.md the results link to, by heading text and anchor;
@@ -141,14 +149,263 @@ LEAD = {
 }
 
 
+# The owner's approved explanations, copied verbatim. Text is inline Markdown:
+# `code` spans and [links](url). Each list item is rendered as **head** text.
+# Notices go one under each chart or table; the Markdown page has no charts, so
+# it renders only the table notices.
+HOW_TO_READ = {
+    "status": "approved",
+    "title": "How to read this page",
+    "intro": (
+        "Everything below compares two labelers with a set of answers we treat as "
+        "correct. Here’s what the columns mean, minus the jargon:"
+    ),
+    "items": [
+        {
+            "head": "Gold:",
+            "text": (
+                "the answers we count as correct. For real sessions, I labeled each "
+                "call by hand. For scenarios, the expected answers were written before "
+                "each scripted run, so the runs couldn’t influence them."
+            ),
+        },
+        {
+            "head": "Accuracy:",
+            "text": "the share of calls where the labeler’s answer matched gold.",
+        },
+        {
+            "head": "95% interval:",
+            "text": (
+                "the range the true accuracy most likely falls in, given how few calls "
+                "we have. A long line means a small sample, so don’t lean on its dot "
+                "too hard."
+            ),
+        },
+        {
+            "head": "Accuracy per shape:",
+            "text": (
+                "scripted runs repeat the same call, so this counts each distinct kind "
+                "of call once. A call that shows up ten times can’t carry the score on "
+                "its own."
+            ),
+        },
+        {
+            "head": "Precision and recall:",
+            "text": (
+                "for yes/no labels, and for secrets. Recall asks: of the real cases, "
+                "how many did it find? Precision asks: of the ones it flagged, how "
+                "many were real? Low recall means misses; low precision means false "
+                "alarms."
+            ),
+        },
+        {
+            "head": "ECE (calibration):",
+            "text": (
+                "whether a labeler’s confidence matches how often it’s right. 0 is "
+                "perfect. At these sample sizes, treat it as a hint, not a measurement."
+            ),
+        },
+        {
+            "head": "Set by rule:",
+            "text": (
+                "answers written by code from facts the trace already shows, not by a "
+                "model. They’re listed separately, and their perfect score is by "
+                "design."
+            ),
+        },
+        {
+            "head": "Not reported / not labeled:",
+            "text": (
+                "“not reported” means the labeler doesn’t answer that label in v0. "
+                "“Not labeled” counts calls it was never asked about, such as the one "
+                "call the hosted labeler’s secret screen refused to send."
+            ),
+        },
+        {
+            "head": "†:",
+            "text": (
+                "the number rests on fewer than 10 calls. Read it as a rough signal."
+            ),
+        },
+    ],
+}
+
+FINDINGS = {
+    "status": "approved",
+    "title": "What the results say",
+    "intro": "Five things stand out.",
+    "items": [
+        {
+            "head": "The labels about what a call does are reliable.",
+            "text": (
+                "On the scenarios, effect, reversibility and the three trifecta checks "
+                "match gold 97–100% of the time for both labelers. That makes sense: "
+                "for these questions, the answer is mostly sitting in the call itself."
+            ),
+        },
+        {
+            "head": "Injection is Jev’s strongest result.",
+            "text": (
+                "It caught all 11 planted injections. It also raised no false alarm on "
+                "the 70 calls that had none, including security docs that quote "
+                "attacks, instruction files full of commands, and summaries that "
+                "report an attack without repeating it. Those look-alikes are exactly "
+                "what trips up keyword rules. Kev couldn’t tell them apart, so v0 "
+                "doesn’t use Kev for injection."
+            ),
+        },
+        {
+            "head": "Both labelers over-call secrets.",
+            "text": (
+                "They found every real secret, but raised two to three false alarms "
+                "for each one. Most of those were test-config files like `.env.test`. "
+                "For a triage label, that’s the right direction to be wrong in, since "
+                "a missed secret costs more than a second look. Still, read `secrets` "
+                "as “worth a look”, not “confirmed”."
+            ),
+        },
+        {
+            "head": "The real-session numbers are directional.",
+            "text": (
+                "With 12 to 20 calls per label, a 92% could really be anywhere from "
+                "67% to 99%. One weakness shows through anyway: Kev’s intent accuracy "
+                "drops to 61.5%, and all five misses are shell commands it labeled "
+                "`other`."
+            ),
+        },
+        {
+            "head": "Jev’s confidence means about what it says; Kev’s runs low.",
+            "text": (
+                "When Kev answered scenario intent questions, its average confidence "
+                "was 0.67, but it was right 97% of the time. Kev is usable. Just don’t "
+                "read its probabilities literally."
+            ),
+        },
+    ],
+}
+
+NOTICES = {
+    "status": "approved",
+    "items": {
+        "accuracy_chart": (
+            "Look at the lines before the dots. The real-session lines are long "
+            "because that set is small. The one dot far from the rest is Kev’s intent "
+            "on real sessions."
+        ),
+        "gold_sets_table": (
+            "The scenario set has 111 calls but only 40 distinct kinds of call, "
+            "because scripted runs repeat themselves. That’s why the tables also show "
+            "accuracy per shape."
+        ),
+        "real_sessions_table": (
+            "Jev leaves one call unlabeled on every row: its secret screen refused to "
+            "send that call to a hosted model, which is what it’s for."
+        ),
+        "scenarios_table": (
+            "Nearly everything is in the high 90s. The exception is the precision "
+            "column for `data_class`."
+        ),
+        "set_by_rule_tables": (
+            "These are right by construction. They’re listed so you can see which "
+            "answers aren’t a model’s judgment."
+        ),
+        "injection_chart": (
+            "Planted injections on the left, look-alikes on the right. Jev’s bars are "
+            "full on the left and empty on the right, which is the whole game."
+        ),
+        "data_class_chart": (
+            "Of what each labeler flagged, 5 were real secrets and 11 were test-config "
+            "files. The rest are close calls: code that names a secret without holding "
+            "one, or a file listing that shows `.env` by name."
+        ),
+        "calibration_chart": (
+            "Points above the diagonal mean the labeler is right more often than it "
+            "claims."
+        ),
+    },
+}
+
+CAVEATS = {
+    "status": "approved",
+    "title": "What these results don’t tell you",
+    "intro": (
+        "These numbers are honest about a narrow slice. Before you generalize from "
+        "them:"
+    ),
+    "items": [
+        {
+            "head": "One agent, coding work only.",
+            "text": (
+                "Every call comes from Claude Code 2.1.312 doing software tasks. "
+                "Agents that send email, book things or move money haven’t been "
+                "tested, and intent is the label most likely to change there."
+            ),
+        },
+        {
+            "head": "A small real-world sample.",
+            "text": (
+                "The real-session set is 20 calls from my own work. It says where the "
+                "labelers stumble, not how often they would across a team."
+            ),
+        },
+        {
+            "head": "Attacks I planted.",
+            "text": (
+                "Every injection in the scenarios was written by me. They cover a few "
+                "known patterns, not what a determined attacker would try next."
+            ),
+        },
+        {
+            "head": "One person’s gold.",
+            "text": (
+                "I wrote the taxonomy and labeled the gold, so these scores measure "
+                "agreement with my reading of it. There’s no second labeler yet to "
+                "check that reading."
+            ),
+        },
+        {
+            "head": "Only what the telemetry captured.",
+            "text": (
+                "A label can only judge what reached the trace. The [capture "
+                "gaps](https://github.com/spangloss/spangloss/blob/main/docs/findings/capture-gaps.md) "
+                "limit every number here."
+            ),
+        },
+        {
+            "head": "A snapshot.",
+            "text": (
+                "These are taxonomy 0.4.0 and the labelers’ current versions. Answers "
+                "close to the 50% line can flip between runs, so small differences "
+                "between the two labelers may not hold up."
+            ),
+        },
+    ],
+}
+
+# Blocks of owner-approved text; the generator refuses any that isn't approved.
+APPROVED_TEXT = {
+    "lead": LEAD,
+    "how_to_read": HOW_TO_READ,
+    "findings": FINDINGS,
+    "notices": NOTICES,
+    "caveats": CAVEATS,
+}
+
+
 class ResultsError(ValueError):
     pass
 
 
 def build(sets: Iterable[GoldSet] = GOLD_SETS, today: date | None = None) -> dict:
+    unapproved = [
+        k for k, block in APPROVED_TEXT.items() if block["status"] != "approved"
+    ]
+    if unapproved:
+        raise ResultsError(f"text not approved: {', '.join(unapproved)}")
     cards = load_cards()
     taxonomy = _one({c.taxonomy for c in cards}, "card taxonomy versions")
     inputs, gold_sets, injection_rows, sec_models = [], [], [], {}
+    secrets_rows, calibration_rows = [], []
     for gold_set in sets:
         gold = read_gold(gold_set.gold)
         if {r["taxonomy"] for r in gold} != {taxonomy}:
@@ -171,8 +428,12 @@ def build(sets: Iterable[GoldSet] = GOLD_SETS, today: date | None = None) -> dic
         for backend, result in by_backend.items():
             if backend != DERIVED_MODEL:
                 sec_models.setdefault(backend, set()).add(result.model)
-        gold_sets.append(_gold_set_entry(gold_set, gold, shapes, cards, by_backend))
+        entry = _gold_set_entry(gold_set, gold, shapes, cards, by_backend)
+        gold_sets.append(entry)
         injection_rows += _injection_rows(gold_set, gold, stored)
+        calls_by_span = {c.span_id: c for c in calls}
+        secrets_rows += _secrets_flagged(gold_set, gold, stored, calls_by_span, entry)
+        calibration_rows += _calibration(gold_set, gold, stored, by_backend)
         inputs += [
             _input(gold_set, "gold", gold_set.gold, records=len(gold)),
             _input(gold_set, "labels", gold_set.labels, rows=len(stored)),
@@ -203,6 +464,10 @@ def build(sets: Iterable[GoldSet] = GOLD_SETS, today: date | None = None) -> dic
             for backend, name, where in MODELS
         ],
         "lead": LEAD,
+        "how_to_read": HOW_TO_READ,
+        "findings": FINDINGS,
+        "notices": NOTICES,
+        "caveats": CAVEATS,
         "gold_sets": gold_sets,
         "injection_by_shape": sorted(
             injection_rows,
@@ -211,6 +476,8 @@ def build(sets: Iterable[GoldSet] = GOLD_SETS, today: date | None = None) -> dic
                 SHAPE_ORDER.index(r["shape"]),
             ),
         ),
+        "secrets_flagged": secrets_rows,
+        "calibration": calibration_rows,
         "known_limitations": [
             {"title": title, "see": f"{KNOWN_LIMITATIONS}#{anchor}"}
             for title, anchor in LIMITATIONS
@@ -308,7 +575,7 @@ def _model_entry(
 def _positive(label: str, cards: list[Card]) -> str | None:
     """The answer whose precision and recall are reported: yes, or secrets."""
     if label == DATA_CLASS:
-        return "secrets"
+        return DATA_CLASS_POSITIVE
     group = [c for c in cards if c.label == label]
     if len(group) == 1 and group[0].kind == "noul":
         return "yes"
@@ -357,6 +624,125 @@ def _injection_rows(
                 entry["labeled"] += 1
                 entry["yes"] += answer == "yes"
     return list(rows.values())
+
+
+def _secrets_flagged(
+    gold_set: GoldSet,
+    gold: list[dict[str, Any]],
+    stored: list[StoredLabel],
+    calls: dict[str, ParsedToolCall],
+    entry: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Per labeler, the calls answered secrets: real, test-config or other."""
+    gold_by_span = {r["span_id"]: r for r in gold}
+    precision = next(x for x in entry["labels"] if x["label"] == DATA_CLASS)
+    rows = []
+    for backend, _, _ in MODELS:
+        row: dict[str, Any] = {"set": gold_set.id, "model": backend}
+        if DATA_CLASS in unsupported_labels(backend):
+            rows.append({**row, "status": "not_reported"})
+            continue
+        counts = dict.fromkeys(("real", "test_config", "other"), 0)
+        for x in stored:
+            if x.model.split("/", 1)[0] != backend or x.label != DATA_CLASS:
+                continue
+            record = gold_by_span.get(x.span_id)
+            if (
+                x.answer != DATA_CLASS_POSITIVE
+                or not record
+                or DATA_CLASS not in record["labels"]
+            ):
+                continue
+            counts[secrets_kind(record["labels"][DATA_CLASS], calls[x.span_id])] += 1
+        flagged = sum(counts.values())
+        # The same calls as the precision cell: flagged is its "of", real its hits.
+        p = precision["models"][backend]["precision"]
+        if (flagged, counts["real"]) != (p["of"], p["hits"]):
+            raise ResultsError(
+                f"{gold_set.id} {backend}: secrets don't match precision"
+            )
+        rows.append({**row, "status": "scored", "flagged": flagged, **counts})
+    return rows
+
+
+def secrets_kind(gold_answer: str, call: ParsedToolCall) -> str:
+    """real (gold secrets), test_config, or other, for a call answered secrets."""
+    if gold_answer == DATA_CLASS_POSITIVE:
+        return "real"
+    pattern = call.args.get("pattern")
+    env_search = (
+        call.tool_name in SEARCH_TOOLS
+        and isinstance(pattern, str)
+        and ENV_NAME in pattern
+    )
+    return "test_config" if targets_test_config(call) or env_search else "other"
+
+
+def _calibration(
+    gold_set: GoldSet,
+    gold: list[dict[str, Any]],
+    stored: list[StoredLabel],
+    by_backend: dict[str, ModelScore],
+) -> list[dict[str, Any]]:
+    """Per labeler, every scored model label pooled into eval/score.py's ECE bins."""
+    gold_by_span = {r["span_id"]: r for r in gold}
+    rows = []
+    for backend, _, _ in MODELS:
+        result = by_backend[backend]
+        unsupported = unsupported_labels(backend)
+        # The pairs score() scores: labels the backend answers, on gold that asks them.
+        by_label: dict[str, list[tuple[float, bool]]] = {}
+        for x in stored:
+            record = gold_by_span.get(x.span_id)
+            if x.model != result.model or x.label in unsupported:
+                continue
+            if record is None or x.label not in record["labels"]:
+                continue
+            ok = x.answer == record["labels"][x.label]
+            by_label.setdefault(x.label, []).append((x.p, ok))
+        # Each label's bins must give back score()'s ECE, so the bins are the same.
+        for s in result.labels:
+            pairs = by_label.get(s.label, [])
+            if s.ece is not None and not isclose(
+                _ece(calibration_bins(pairs)), s.ece, abs_tol=1e-12
+            ):
+                raise ResultsError(f"{backend} {s.label}: bins don't match score's ECE")
+        pooled = [pair for pairs in by_label.values() for pair in pairs]
+        rows.append(
+            {
+                "set": gold_set.id,
+                "model": backend,
+                "n": len(pooled),
+                "bins": calibration_bins(pooled),
+            }
+        )
+    return rows
+
+
+def calibration_bins(pairs: list[tuple[float, bool]]) -> list[dict[str, Any]]:
+    """(p, correct) pairs in ECE_BINS equal-width bins, as eval/score.py bins them."""
+    buckets: list[list[tuple[float, bool]]] = [[] for _ in range(ECE_BINS)]
+    for p, ok in pairs:
+        buckets[min(int(p * ECE_BINS), ECE_BINS - 1)].append((p, ok))
+    return [
+        {
+            "lo": i / ECE_BINS,
+            "hi": (i + 1) / ECE_BINS,
+            "n": len(b),
+            "mean_confidence": sum(p for p, _ in b) / len(b) if b else None,
+            "accuracy": sum(ok for _, ok in b) / len(b) if b else None,
+        }
+        for i, b in enumerate(buckets)
+    ]
+
+
+def _ece(bins: list[dict[str, Any]]) -> float:
+    total = sum(b["n"] for b in bins)
+    return sum(
+        abs(b["accuracy"] - b["mean_confidence"]) * b["n"] / total
+        for b in bins
+        if b["n"]
+    )
 
 
 def injection_shape(set_id: str, record: dict[str, Any]) -> str:
@@ -470,7 +856,18 @@ def render_json(data: dict[str, Any]) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
+# Table notices by gold set id; chart notices are left to the site.
+TABLE_NOTICES = {
+    "real_sessions": "real_sessions_table",
+    "scenarios": "scenarios_table",
+}
+
+
 def render_markdown(data: dict[str, Any]) -> str:
+    for key in ("how_to_read", "findings", "notices", "caveats"):
+        if data[key]["status"] != "approved":
+            raise ResultsError(f"{key} text is not approved")
+    notices = data["notices"]["items"]
     small = data["small_n"]
     names = {m["id"]: m["name"] for m in data["models"]}
     prov = data["provenance"]
@@ -494,6 +891,13 @@ def render_markdown(data: dict[str, Any]) -> str:
         f" `{prov['commit'][:7]}`. Labelers: "
         + ", ".join(f"{m['name']} ({m['runs']})" for m in data["models"])
         + f". † marks a cell resting on fewer than {small} calls.",
+    ]
+    findings = data["findings"]
+    lines += ["", f"## {findings['title']}", "", findings["intro"]]
+    for item in findings["items"]:
+        lines += ["", f"**{item['head']}** {item['text']}"]
+    lines += _md_list(data["how_to_read"])
+    lines += [
         "",
         "## Gold sets",
         "",
@@ -506,8 +910,9 @@ def render_markdown(data: dict[str, Any]) -> str:
         lines.append(
             f"| {s['name']} | {s['description']} | {s['calls']} | {s['shapes']} |"
         )
+    lines += ["", notices["gold_sets_table"]]
     for s in data["gold_sets"]:
-        lines += _md_gold_set(s, names, small)
+        lines += _md_gold_set(s, names, small, notices)
     lines += _md_injection(data, names, small)
     lines += [
         "",
@@ -517,6 +922,7 @@ def render_markdown(data: dict[str, Any]) -> str:
         "",
     ]
     lines += [f"- {_md_link(x['see'], x['title'])}" for x in data["known_limitations"]]
+    lines += _md_list(data["caveats"])
     lines += ["", "## Method", ""]
     for note in data["method"]:
         see = ", ".join(_md_link(p) for p in note["see"])
@@ -524,7 +930,14 @@ def render_markdown(data: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _md_gold_set(s: dict[str, Any], names: dict[str, str], small: int) -> list[str]:
+def _md_list(block: dict[str, Any]) -> list[str]:
+    lines = ["", f"## {block['title']}", "", block["intro"], ""]
+    return lines + [f"- **{x['head']}** {x['text']}" for x in block["items"]]
+
+
+def _md_gold_set(
+    s: dict[str, Any], names: dict[str, str], small: int, notices: dict[str, str]
+) -> list[str]:
     lines = [
         "",
         f"## {s['name']}",
@@ -561,6 +974,8 @@ def _md_gold_set(s: dict[str, Any], names: dict[str, str], small: int) -> list[s
             )
     lines += [
         "",
+        notices[TABLE_NOTICES[s["id"]]],
+        "",
         "### Set by rule",
         "",
         "Written by code, not by a labeler, and not counted in the table above.",
@@ -573,7 +988,7 @@ def _md_gold_set(s: dict[str, Any], names: dict[str, str], small: int) -> list[s
         lines.append(
             f"| `{r['label']}` | {r['n']}{flag} | {r['agrees_with_gold']} of {r['n']} |"
         )
-    return lines
+    return lines + ["", notices["set_by_rule_tables"]]
 
 
 def _md_injection(data: dict[str, Any], names: dict[str, str], small: int) -> list:

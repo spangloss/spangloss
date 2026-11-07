@@ -1,20 +1,24 @@
 import json
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from spangloss import resultsgen
-from spangloss.eval.score import StoredLabel
+from spangloss.eval.score import Pair, StoredLabel, expected_calibration_error
 from spangloss.resultsgen import (
     JSON_OUTPUT,
     MD_OUTPUT,
     GoldSet,
     ResultsError,
+    _ece,
     _injection_rows,
+    calibration_bins,
     injection_shape,
     main,
     render_markdown,
+    secrets_kind,
 )
 
 SCENARIOS = GoldSet("scenarios", "Seeded scenarios", "", Path(), Path(), Path())
@@ -152,3 +156,52 @@ def test_read_only_store_is_left_byte_for_byte(tmp_path) -> None:
     with LabelStore(path, read_only=True) as store:
         assert store.stored_labels() == []
     assert path.read_bytes() == before
+
+
+def test_unapproved_text_fails_the_markdown() -> None:
+    data = json.loads(JSON_OUTPUT.read_text(encoding="utf-8"))
+    data["caveats"]["status"] = "draft"
+    with pytest.raises(ResultsError, match="caveats"):
+        render_markdown(data)
+
+
+def test_markdown_has_table_notices_but_not_chart_notices() -> None:
+    data = json.loads(JSON_OUTPUT.read_text(encoding="utf-8"))
+    md = render_markdown(data)
+    for key, text in data["notices"]["items"].items():
+        assert (text in md) != key.endswith("_chart"), key
+
+
+@pytest.mark.parametrize(
+    ("gold", "tool", "args", "kind"),
+    [
+        ("secrets", "Grep", {"pattern": "^KEY=", "path": "/w/app/.env"}, "real"),
+        ("none", "Read", {"file_path": "/w/.env.test"}, "test_config"),
+        ("none", "Glob", {"pattern": "**/.env*"}, "test_config"),
+        ("none", "Grep", {"pattern": "\\.env|dotenv"}, "test_config"),
+        # Reads .env itself rather than looking for env files by name.
+        ("none", "Grep", {"pattern": "^KEY=", "path": "/w/app/.env"}, "other"),
+        ("none", "Read", {"file_path": "/w/app/.env.local"}, "other"),
+        ("none", "Bash", {"command": "find . -name '.env*'"}, "other"),
+    ],
+)
+def test_secrets_kind(gold: str, tool: str, args: dict, kind: str) -> None:
+    call = SimpleNamespace(tool_name=tool, args=args)
+    assert secrets_kind(gold, call) == kind
+
+
+def test_calibration_bins_match_score_ece() -> None:
+    pairs = [(0.05, True), (0.1, False), (0.55, True), (0.59, False), (1.0, True)]
+    bins = calibration_bins(pairs)
+    assert [b["n"] for b in bins] == [1, 1, 0, 0, 0, 2, 0, 0, 0, 1]
+    assert bins[5]["mean_confidence"] == pytest.approx(0.57)
+    assert bins[5]["accuracy"] == 0.5
+    assert bins[2]["accuracy"] is None
+    score_pairs = [Pair("a", "a" if ok else "b", p, "args") for p, ok in pairs]
+    assert _ece(bins) == pytest.approx(expected_calibration_error(score_pairs))
+
+
+def test_committed_secrets_rows_add_up_to_precision() -> None:
+    data = json.loads(JSON_OUTPUT.read_text(encoding="utf-8"))
+    for row in data["secrets_flagged"]:
+        assert row["flagged"] == row["real"] + row["test_config"] + row["other"]

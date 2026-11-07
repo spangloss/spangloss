@@ -4,9 +4,9 @@
   "taxonomy": "0.4.0",
   "provenance": {
     "generator": "python -m spangloss.resultsgen",
-    "generated": "2026-11-06",
-    "commit": "afb6916b05d38203d6cb08d593377926cc145eba",
-    "source_clean": true,
+    "generated": "2026-11-07",
+    "commit": "0a4344ceb3523ea8c0cf570227d13cc9f942263d",
+    "source_clean": false,
     "inputs": [
       {
         "set": "real_sessions",
@@ -74,6 +74,120 @@
   "lead": {
     "status": "approved",
     "text": "These are Spangloss v0's per-label results at taxonomy 0.4.0, on two gold sets scored separately: 20 hand-labeled calls from real sessions and 111 calls from seeded scenarios. On the scenarios, each label's accuracy runs from 86.5% to 100% for Jev, the hosted labeler, and from 89.2% to 100% for Kev, the local one. Jev caught all 11 planted injections; Kev isn't scored on injection in v0. Both labelers over-call secrets (precision 5/17 for Kev, 5/20 for Jev). Kev's probabilities run below its accuracy on nearly every label (ECE up to 0.30, against at most 0.13 for Jev), and on real sessions its intent accuracy drops to 61.5%. The real-session set is small and holds no injections, so Jev's 100% there shows only that it raised no false alarms. All of it comes from one agent's coding sessions: these numbers describe these sets, not agent sessions in general."
+  },
+  "how_to_read": {
+    "status": "approved",
+    "title": "How to read this page",
+    "intro": "Everything below compares two labelers with a set of answers we treat as correct. Here’s what the columns mean, minus the jargon:",
+    "items": [
+      {
+        "head": "Gold:",
+        "text": "the answers we count as correct. For real sessions, I labeled each call by hand. For scenarios, the expected answers were written before each scripted run, so the runs couldn’t influence them."
+      },
+      {
+        "head": "Accuracy:",
+        "text": "the share of calls where the labeler’s answer matched gold."
+      },
+      {
+        "head": "95% interval:",
+        "text": "the range the true accuracy most likely falls in, given how few calls we have. A long line means a small sample, so don’t lean on its dot too hard."
+      },
+      {
+        "head": "Accuracy per shape:",
+        "text": "scripted runs repeat the same call, so this counts each distinct kind of call once. A call that shows up ten times can’t carry the score on its own."
+      },
+      {
+        "head": "Precision and recall:",
+        "text": "for yes/no labels, and for secrets. Recall asks: of the real cases, how many did it find? Precision asks: of the ones it flagged, how many were real? Low recall means misses; low precision means false alarms."
+      },
+      {
+        "head": "ECE (calibration):",
+        "text": "whether a labeler’s confidence matches how often it’s right. 0 is perfect. At these sample sizes, treat it as a hint, not a measurement."
+      },
+      {
+        "head": "Set by rule:",
+        "text": "answers written by code from facts the trace already shows, not by a model. They’re listed separately, and their perfect score is by design."
+      },
+      {
+        "head": "Not reported / not labeled:",
+        "text": "“not reported” means the labeler doesn’t answer that label in v0. “Not labeled” counts calls it was never asked about, such as the one call the hosted labeler’s secret screen refused to send."
+      },
+      {
+        "head": "†:",
+        "text": "the number rests on fewer than 10 calls. Read it as a rough signal."
+      }
+    ]
+  },
+  "findings": {
+    "status": "approved",
+    "title": "What the results say",
+    "intro": "Five things stand out.",
+    "items": [
+      {
+        "head": "The labels about what a call does are reliable.",
+        "text": "On the scenarios, effect, reversibility and the three trifecta checks match gold 97–100% of the time for both labelers. That makes sense: for these questions, the answer is mostly sitting in the call itself."
+      },
+      {
+        "head": "Injection is Jev’s strongest result.",
+        "text": "It caught all 11 planted injections. It also raised no false alarm on the 70 calls that had none, including security docs that quote attacks, instruction files full of commands, and summaries that report an attack without repeating it. Those look-alikes are exactly what trips up keyword rules. Kev couldn’t tell them apart, so v0 doesn’t use Kev for injection."
+      },
+      {
+        "head": "Both labelers over-call secrets.",
+        "text": "They found every real secret, but raised two to three false alarms for each one. Most of those were test-config files like `.env.test`. For a triage label, that’s the right direction to be wrong in, since a missed secret costs more than a second look. Still, read `secrets` as “worth a look”, not “confirmed”."
+      },
+      {
+        "head": "The real-session numbers are directional.",
+        "text": "With 12 to 20 calls per label, a 92% could really be anywhere from 67% to 99%. One weakness shows through anyway: Kev’s intent accuracy drops to 61.5%, and all five misses are shell commands it labeled `other`."
+      },
+      {
+        "head": "Jev’s confidence means about what it says; Kev’s runs low.",
+        "text": "When Kev answered scenario intent questions, its average confidence was 0.67, but it was right 97% of the time. Kev is usable. Just don’t read its probabilities literally."
+      }
+    ]
+  },
+  "notices": {
+    "status": "approved",
+    "items": {
+      "accuracy_chart": "Look at the lines before the dots. The real-session lines are long because that set is small. The one dot far from the rest is Kev’s intent on real sessions.",
+      "gold_sets_table": "The scenario set has 111 calls but only 40 distinct kinds of call, because scripted runs repeat themselves. That’s why the tables also show accuracy per shape.",
+      "real_sessions_table": "Jev leaves one call unlabeled on every row: its secret screen refused to send that call to a hosted model, which is what it’s for.",
+      "scenarios_table": "Nearly everything is in the high 90s. The exception is the precision column for `data_class`.",
+      "set_by_rule_tables": "These are right by construction. They’re listed so you can see which answers aren’t a model’s judgment.",
+      "injection_chart": "Planted injections on the left, look-alikes on the right. Jev’s bars are full on the left and empty on the right, which is the whole game.",
+      "data_class_chart": "Of what each labeler flagged, 5 were real secrets and 11 were test-config files. The rest are close calls: code that names a secret without holding one, or a file listing that shows `.env` by name.",
+      "calibration_chart": "Points above the diagonal mean the labeler is right more often than it claims."
+    }
+  },
+  "caveats": {
+    "status": "approved",
+    "title": "What these results don’t tell you",
+    "intro": "These numbers are honest about a narrow slice. Before you generalize from them:",
+    "items": [
+      {
+        "head": "One agent, coding work only.",
+        "text": "Every call comes from Claude Code 2.1.312 doing software tasks. Agents that send email, book things or move money haven’t been tested, and intent is the label most likely to change there."
+      },
+      {
+        "head": "A small real-world sample.",
+        "text": "The real-session set is 20 calls from my own work. It says where the labelers stumble, not how often they would across a team."
+      },
+      {
+        "head": "Attacks I planted.",
+        "text": "Every injection in the scenarios was written by me. They cover a few known patterns, not what a determined attacker would try next."
+      },
+      {
+        "head": "One person’s gold.",
+        "text": "I wrote the taxonomy and labeled the gold, so these scores measure agreement with my reading of it. There’s no second labeler yet to check that reading."
+      },
+      {
+        "head": "Only what the telemetry captured.",
+        "text": "A label can only judge what reached the trace. The [capture gaps](https://github.com/spangloss/spangloss/blob/main/docs/findings/capture-gaps.md) limit every number here."
+      },
+      {
+        "head": "A snapshot.",
+        "text": "These are taxonomy 0.4.0 and the labelers’ current versions. Answers close to the 50% line can flip between runs, so small differences between the two labelers may not hold up."
+      }
+    ]
   },
   "gold_sets": [
     {
@@ -937,6 +1051,354 @@
           "yes": 0
         }
       }
+    }
+  ],
+  "secrets_flagged": [
+    {
+      "set": "real_sessions",
+      "model": "kev",
+      "status": "scored",
+      "flagged": 1,
+      "real": 0,
+      "test_config": 0,
+      "other": 1
+    },
+    {
+      "set": "real_sessions",
+      "model": "jev",
+      "status": "scored",
+      "flagged": 0,
+      "real": 0,
+      "test_config": 0,
+      "other": 0
+    },
+    {
+      "set": "scenarios",
+      "model": "kev",
+      "status": "scored",
+      "flagged": 17,
+      "real": 5,
+      "test_config": 11,
+      "other": 1
+    },
+    {
+      "set": "scenarios",
+      "model": "jev",
+      "status": "scored",
+      "flagged": 20,
+      "real": 5,
+      "test_config": 11,
+      "other": 4
+    }
+  ],
+  "calibration": [
+    {
+      "set": "real_sessions",
+      "model": "kev",
+      "n": 116,
+      "bins": [
+        {
+          "lo": 0.0,
+          "hi": 0.1,
+          "n": 0,
+          "mean_confidence": null,
+          "accuracy": null
+        },
+        {
+          "lo": 0.1,
+          "hi": 0.2,
+          "n": 0,
+          "mean_confidence": null,
+          "accuracy": null
+        },
+        {
+          "lo": 0.2,
+          "hi": 0.3,
+          "n": 1,
+          "mean_confidence": 0.2894,
+          "accuracy": 1.0
+        },
+        {
+          "lo": 0.3,
+          "hi": 0.4,
+          "n": 6,
+          "mean_confidence": 0.34344100000000005,
+          "accuracy": 0.16666666666666666
+        },
+        {
+          "lo": 0.4,
+          "hi": 0.5,
+          "n": 12,
+          "mean_confidence": 0.44353333333333333,
+          "accuracy": 0.6666666666666666
+        },
+        {
+          "lo": 0.5,
+          "hi": 0.6,
+          "n": 16,
+          "mean_confidence": 0.55725,
+          "accuracy": 0.6875
+        },
+        {
+          "lo": 0.6,
+          "hi": 0.7,
+          "n": 5,
+          "mean_confidence": 0.66742,
+          "accuracy": 1.0
+        },
+        {
+          "lo": 0.7,
+          "hi": 0.8,
+          "n": 20,
+          "mean_confidence": 0.748485,
+          "accuracy": 1.0
+        },
+        {
+          "lo": 0.8,
+          "hi": 0.9,
+          "n": 21,
+          "mean_confidence": 0.8497333333333333,
+          "accuracy": 1.0
+        },
+        {
+          "lo": 0.9,
+          "hi": 1.0,
+          "n": 35,
+          "mean_confidence": 0.9461742857142857,
+          "accuracy": 0.9428571428571428
+        }
+      ]
+    },
+    {
+      "set": "real_sessions",
+      "model": "jev",
+      "n": 123,
+      "bins": [
+        {
+          "lo": 0.0,
+          "hi": 0.1,
+          "n": 0,
+          "mean_confidence": null,
+          "accuracy": null
+        },
+        {
+          "lo": 0.1,
+          "hi": 0.2,
+          "n": 0,
+          "mean_confidence": null,
+          "accuracy": null
+        },
+        {
+          "lo": 0.2,
+          "hi": 0.3,
+          "n": 0,
+          "mean_confidence": null,
+          "accuracy": null
+        },
+        {
+          "lo": 0.3,
+          "hi": 0.4,
+          "n": 0,
+          "mean_confidence": null,
+          "accuracy": null
+        },
+        {
+          "lo": 0.4,
+          "hi": 0.5,
+          "n": 1,
+          "mean_confidence": 0.48,
+          "accuracy": 1.0
+        },
+        {
+          "lo": 0.5,
+          "hi": 0.6,
+          "n": 9,
+          "mean_confidence": 0.5366666666666666,
+          "accuracy": 0.4444444444444444
+        },
+        {
+          "lo": 0.6,
+          "hi": 0.7,
+          "n": 3,
+          "mean_confidence": 0.61,
+          "accuracy": 0.3333333333333333
+        },
+        {
+          "lo": 0.7,
+          "hi": 0.8,
+          "n": 5,
+          "mean_confidence": 0.718,
+          "accuracy": 1.0
+        },
+        {
+          "lo": 0.8,
+          "hi": 0.9,
+          "n": 14,
+          "mean_confidence": 0.8514285714285714,
+          "accuracy": 1.0
+        },
+        {
+          "lo": 0.9,
+          "hi": 1.0,
+          "n": 91,
+          "mean_confidence": 0.9662637362637362,
+          "accuracy": 1.0
+        }
+      ]
+    },
+    {
+      "set": "scenarios",
+      "model": "kev",
+      "n": 752,
+      "bins": [
+        {
+          "lo": 0.0,
+          "hi": 0.1,
+          "n": 0,
+          "mean_confidence": null,
+          "accuracy": null
+        },
+        {
+          "lo": 0.1,
+          "hi": 0.2,
+          "n": 0,
+          "mean_confidence": null,
+          "accuracy": null
+        },
+        {
+          "lo": 0.2,
+          "hi": 0.3,
+          "n": 0,
+          "mean_confidence": null,
+          "accuracy": null
+        },
+        {
+          "lo": 0.3,
+          "hi": 0.4,
+          "n": 3,
+          "mean_confidence": 0.34899190666666663,
+          "accuracy": 0.0
+        },
+        {
+          "lo": 0.4,
+          "hi": 0.5,
+          "n": 13,
+          "mean_confidence": 0.4746369084615385,
+          "accuracy": 0.6923076923076923
+        },
+        {
+          "lo": 0.5,
+          "hi": 0.6,
+          "n": 45,
+          "mean_confidence": 0.5487696417777778,
+          "accuracy": 0.8888888888888888
+        },
+        {
+          "lo": 0.6,
+          "hi": 0.7,
+          "n": 95,
+          "mean_confidence": 0.6570457058947369,
+          "accuracy": 0.968421052631579
+        },
+        {
+          "lo": 0.7,
+          "hi": 0.8,
+          "n": 201,
+          "mean_confidence": 0.7535646766169154,
+          "accuracy": 1.0
+        },
+        {
+          "lo": 0.8,
+          "hi": 0.9,
+          "n": 133,
+          "mean_confidence": 0.8530894736842105,
+          "accuracy": 0.9774436090225563
+        },
+        {
+          "lo": 0.9,
+          "hi": 1.0,
+          "n": 262,
+          "mean_confidence": 0.942774427480916,
+          "accuracy": 1.0
+        }
+      ]
+    },
+    {
+      "set": "scenarios",
+      "model": "jev",
+      "n": 819,
+      "bins": [
+        {
+          "lo": 0.0,
+          "hi": 0.1,
+          "n": 0,
+          "mean_confidence": null,
+          "accuracy": null
+        },
+        {
+          "lo": 0.1,
+          "hi": 0.2,
+          "n": 0,
+          "mean_confidence": null,
+          "accuracy": null
+        },
+        {
+          "lo": 0.2,
+          "hi": 0.3,
+          "n": 0,
+          "mean_confidence": null,
+          "accuracy": null
+        },
+        {
+          "lo": 0.3,
+          "hi": 0.4,
+          "n": 0,
+          "mean_confidence": null,
+          "accuracy": null
+        },
+        {
+          "lo": 0.4,
+          "hi": 0.5,
+          "n": 0,
+          "mean_confidence": null,
+          "accuracy": null
+        },
+        {
+          "lo": 0.5,
+          "hi": 0.6,
+          "n": 15,
+          "mean_confidence": 0.55,
+          "accuracy": 0.6
+        },
+        {
+          "lo": 0.6,
+          "hi": 0.7,
+          "n": 21,
+          "mean_confidence": 0.6311333333333333,
+          "accuracy": 0.47619047619047616
+        },
+        {
+          "lo": 0.7,
+          "hi": 0.8,
+          "n": 30,
+          "mean_confidence": 0.7596666666666666,
+          "accuracy": 0.9
+        },
+        {
+          "lo": 0.8,
+          "hi": 0.9,
+          "n": 68,
+          "mean_confidence": 0.8472058823529411,
+          "accuracy": 1.0
+        },
+        {
+          "lo": 0.9,
+          "hi": 1.0,
+          "n": 685,
+          "mean_confidence": 0.9740154744525548,
+          "accuracy": 1.0
+        }
+      ]
     }
   ],
   "known_limitations": [
