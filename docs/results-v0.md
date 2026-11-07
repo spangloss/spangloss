@@ -4,7 +4,7 @@
 
 These are Spangloss v0's per-label results at taxonomy 0.4.0, on two gold sets scored separately: 20 hand-labeled calls from real sessions and 111 calls from seeded scenarios. On the scenarios, each label's accuracy runs from 86.5% to 100% for Jev, the hosted labeler, and from 89.2% to 100% for Kev, the local one. Jev caught all 11 planted injections; Kev isn't scored on injection in v0. Both labelers over-call secrets (precision 5/17 for Kev, 5/20 for Jev). Kev's probabilities run below its accuracy on nearly every label (ECE up to 0.30, against at most 0.13 for Jev), and on real sessions its intent accuracy drops to 61.5%. The real-session set is small and holds no injections, so Jev's 100% there shows only that it raised no false alarms. All of it comes from one agent's coding sessions: these numbers describe these sets, not agent sessions in general.
 
-Taxonomy 0.4.0. Generated 2026-11-07 at commit `235ecf5`. Labelers: Kev (local), Jev (hosted). † marks a cell resting on fewer than 10 calls.
+Taxonomy 0.4.0. Generated 2026-11-07 at commit `8b7d572`. Labelers: Kev (local), Jev (hosted). † marks a cell resting on fewer than 10 calls.
 
 ## What the results say
 
@@ -14,11 +14,11 @@ Five things stand out.
 
 **Injection is Jev’s strongest result.** It caught all 11 planted injections. It also raised no false alarm on the 70 calls that had none, including security docs that quote attacks, instruction files full of commands, and summaries that report an attack without repeating it. Those look-alikes are exactly what trips up keyword rules. Kev couldn’t tell them apart, so v0 doesn’t use Kev for injection.
 
-**Both labelers over-call secrets.** They found every real secret, but raised two to three false alarms for each one. Most of those were test-config files like `.env.test`. For a triage label, that’s the right direction to be wrong in, since a missed secret costs more than a second look. Still, read `secrets` as “worth a look”, not “confirmed”.
+**Both labelers over-call secrets.** They found every real secret, but raised two to three false alarms for each one. Most of those were reads of, or searches for, test-config files like `.env.test`. For a triage label, that’s the right direction to be wrong in, since a missed secret costs more than a second look. Still, read `secrets` as “worth a look”, not “confirmed”.
 
 **The real-session numbers are directional.** With 12 to 20 calls per label, a 92% could really be anywhere from 67% to 99%. One weakness shows through anyway: Kev’s intent accuracy drops to 61.5%, and all five misses are shell commands it labeled `other`.
 
-**Jev’s confidence means about what it says; Kev’s runs low.** When Kev answered scenario intent questions, its average confidence was 0.67, but it was right 97% of the time. Kev is usable. Just don’t read its probabilities literally.
+**Jev’s confidence means about what it says; Kev’s runs low.** Jev’s rare answers below 0.7 confidence are right only about half the time, so read those as a coin flip. When Kev answered scenario intent questions, its average confidence was 0.67, but it was right 97% of the time. Kev is usable. Just don’t read its probabilities literally.
 
 ## How to read this page
 
@@ -105,7 +105,7 @@ These are right by construction. They’re listed so you can see which answers a
 | `sec.trifecta.untrusted_source` | Kev | 96 | 100.0% (96.2–100.0%) | 35 | 100.0% | 0.152 | 29/29 (100.0%) | 29/29 (100.0%) | 0 |
 | `sec.trifecta.untrusted_source` | Jev | 96 | 100.0% (96.2–100.0%) | 35 | 100.0% | 0.069 | 29/29 (100.0%) | 29/29 (100.0%) | 0 |
 
-Nearly everything is in the high 90s. The exception is the precision column for `data_class`.
+Nearly every number is above 90%. The exception is `data_class`, where most of the misses are false alarms on secrets.
 
 ### Set by rule
 

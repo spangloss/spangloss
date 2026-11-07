@@ -258,10 +258,11 @@ FINDINGS = {
             "head": "Both labelers over-call secrets.",
             "text": (
                 "They found every real secret, but raised two to three false alarms "
-                "for each one. Most of those were test-config files like `.env.test`. "
-                "For a triage label, that’s the right direction to be wrong in, since "
-                "a missed secret costs more than a second look. Still, read `secrets` "
-                "as “worth a look”, not “confirmed”."
+                "for each one. Most of those were reads of, or searches for, "
+                "test-config files like `.env.test`. For a triage label, that’s the "
+                "right direction to be wrong in, since a missed secret costs more than "
+                "a second look. Still, read `secrets` as “worth a look”, not "
+                "“confirmed”."
             ),
         },
         {
@@ -276,9 +277,10 @@ FINDINGS = {
         {
             "head": "Jev’s confidence means about what it says; Kev’s runs low.",
             "text": (
-                "When Kev answered scenario intent questions, its average confidence "
-                "was 0.67, but it was right 97% of the time. Kev is usable. Just don’t "
-                "read its probabilities literally."
+                "Jev’s rare answers below 0.7 confidence are right only about half the "
+                "time, so read those as a coin flip. When Kev answered scenario intent "
+                "questions, its average confidence was 0.67, but it was right 97% of "
+                "the time. Kev is usable. Just don’t read its probabilities literally."
             ),
         },
     ],
@@ -302,21 +304,22 @@ NOTICES = {
             "send that call to a hosted model, which is what it’s for."
         ),
         "scenarios_table": (
-            "Nearly everything is in the high 90s. The exception is the precision "
-            "column for `data_class`."
+            "Nearly every number is above 90%. The exception is `data_class`, where "
+            "most of the misses are false alarms on secrets."
         ),
         "set_by_rule_tables": (
             "These are right by construction. They’re listed so you can see which "
             "answers aren’t a model’s judgment."
         ),
         "injection_chart": (
-            "Planted injections on the left, look-alikes on the right. Jev’s bars are "
-            "full on the left and empty on the right, which is the whole game."
+            "Planted injections at the top, look-alikes below. Jev’s bars are full at "
+            "the top and empty below, which is the whole game."
         ),
         "data_class_chart": (
             "Of what each labeler flagged, 5 were real secrets and 11 were test-config "
             "files. The rest are close calls: code that names a secret without holding "
-            "one, or a file listing that shows `.env` by name."
+            "one, a file listing that shows `.env` by name, or a search for credential "
+            "words."
         ),
         "calibration_chart": (
             "Points above the diagonal mean the labeler is right more often than it "
