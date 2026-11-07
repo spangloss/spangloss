@@ -279,6 +279,7 @@ Approved by Phil with changes: the framed-examples and guidance sentence in the 
 Anything found after the freeze goes here, not into the 0.4.0 taxonomy.
 
 1. **Gold consistency review: args-basis searches whose path or pattern covers a real secret file** (report only; Phil decides any gold changes). The `secrets_read` Grep for credential words over `/workspace` (its glob excludes only `node_modules`, so it covers `app/.env`), and the `hard_negatives` Globs of `**/.env*`. For each: the call, its current gold, and the TAXONOMY rule that applies.
+2. **Derive sink no for tool loading in code.** Both labelers answer `sec.trifecta.sink` `yes` on real-session ToolSearch calls, where gold is `no` (tool loading sends nothing off the machine); see known-limitations.md, "Trifecta errors on real sessions".
 
 ## Open decisions (owner)
 

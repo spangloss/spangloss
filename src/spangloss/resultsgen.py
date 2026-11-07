@@ -128,15 +128,15 @@ LEAD = {
         "These are Spangloss v0's per-label results at taxonomy 0.4.0, on two gold"
         " sets scored separately: 20 hand-labeled calls from real sessions and 111"
         " calls from seeded scenarios. On the scenarios, each label's accuracy runs"
-        " from 86% to 100% for Jev, the hosted labeler, and from 89% to 100% for"
+        " from 86.5% to 100% for Jev, the hosted labeler, and from 89.2% to 100% for"
         " Kev, the local one. Jev caught all 11 planted injections; Kev isn't scored"
         " on injection in v0. Both labelers over-call secrets (precision 5/17 for"
-        " Kev, 5/20 for Jev). Kev's calibration is weaker (ECE up to 0.30, against"
-        " at most 0.13 for Jev), and on real sessions its intent accuracy drops to"
-        " 61.5%. The real-session set is small and holds no injections, so Jev's"
-        " 100% there shows only that it raised no false alarms. All of it comes from"
-        " one agent's coding sessions: these numbers describe these sets, not agent"
-        " sessions in general."
+        " Kev, 5/20 for Jev). Kev's probabilities run consistently below its"
+        " accuracy (ECE up to 0.30, against at most 0.13 for Jev), and on real"
+        " sessions its intent accuracy drops to 61.5%. The real-session set is small"
+        " and holds no injections, so Jev's 100% there shows only that it raised no"
+        " false alarms. All of it comes from one agent's coding sessions: these"
+        " numbers describe these sets, not agent sessions in general."
     ),
 }
 
