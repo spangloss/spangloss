@@ -49,3 +49,62 @@ Limitations of the labelers that v0 ships with and doesn't try to fix. These are
 - Jev's other 4 are in `secrets_read`: two Reads of client code that only names the key's environment variable (p 0.60, 0.61), a `find` whose output lists `./app/.env` by name (p 0.73), and an args-basis Grep for credential words over the workspace (p 0.61).
 
 **Effect:** treat a single `sec.data_class` = `secrets` as a candidate, not a confirmed credential access; detections that combine it with other labels are less affected.
+
+## Kev's `sec.intent` misses on real-session Bash calls
+
+**What:** On real sessions, Kev labels many Bash calls' intent `other` where gold has `explore` or `modify`. On scenarios its intent is accurate.
+
+**Evidence:** taxonomy 0.4.0 results ([results-v0.md](../results-v0.md)). Kev is right on 8 of 13 real-session calls (61.5%, 95% CI 35.5–82.3%), against 104 of 107 (97.2%) on scenarios. Jev is right on all 12 real-session calls it labeled. Kev's real-session answers, gold → Kev:
+
+| Gold | Kev `explore` | Kev `retrieve` | Kev `modify` | Kev `delegate` | Kev `other` |
+| --- | --- | --- | --- | --- | --- |
+| `explore` | 1 | | | | **2** |
+| `retrieve` | | 5 | | | |
+| `modify` | | | 1 | | **3** |
+| `delegate` | | | | 1 | |
+
+- All 5 errors are `other`, all on Bash calls at `content` basis, across 4 call shapes, with p 0.31–0.41. Kev is right on 4 of the 9 Bash calls and on all 4 Read and Agent calls.
+- No wrong answer is another real intent: Kev falls back to `other` rather than confusing one intent with another.
+
+**Effect:** with Kev, real-session shell commands that explore or change the workspace can carry `sec.intent` `other`, so detections keyed on `explore` or `modify` miss them. The 13 calls are too few to say how often this happens in general.
+
+## Trifecta errors on real sessions
+
+**What:** Both labelers mark real-session ToolSearch calls as a sink and an untrusted source, and both miss some Bash calls that read private data.
+
+**Evidence:** taxonomy 0.4.0 results, real-session gold (18 calls for Jev, 19 for Kev, after calls set by rule):
+
+| Label | Kev | Jev | Where the errors fall |
+| --- | --- | --- | --- |
+| `sec.trifecta.sink` | precision 4/6, recall 4/4 | precision 4/6, recall 4/4 | both false positives are ToolSearch |
+| `sec.trifecta.untrusted_source` | precision 4/6, recall 4/4 | precision 4/6, recall 4/4 | both false positives are ToolSearch |
+| `sec.trifecta.private_source` | precision 10/11, recall 10/12 | precision 9/9, recall 9/11 | misses are Bash; Kev's false positive is SubagentHandback |
+
+- The sink and untrusted_source false positives are the same 2 ToolSearch calls for both labelers and both labels: one call shape, at `name_only` basis. Kev's p(yes) is 0.52 for sink and 0.91 for untrusted_source; Jev's is 0.50–0.54 and 0.58–0.61.
+- Jev's 2 private_source misses are Bash calls (p 0.57 for `no`). Kev also misses 2 Bash calls, one of them the same call.
+- These are the only trifecta errors on real sessions. On scenarios, sink and untrusted_source are 100% for both labelers.
+
+**Effect:** a ToolSearch call can supply two legs of the trifecta at once, so session-level trifecta detections can fire on sessions that only searched for tools. ToolSearch spans carry no output ([capture-gaps.md](capture-gaps.md)), so the labelers judge these calls by name alone.
+
+## Kev is less well calibrated than Jev
+
+**What:** Kev's probabilities match how often it is right less closely than Jev's. Kev mostly understates its confidence: its mean p is at or below its accuracy on every label.
+
+**Evidence:** expected calibration error (10 equal-width bins) at taxonomy 0.4.0:
+
+| Label | Real sessions: Kev | Real sessions: Jev | Scenarios: Kev | Scenarios: Jev |
+| --- | --- | --- | --- | --- |
+| `sec.data_class` | **0.301** | 0.062 | **0.257** | 0.127 |
+| `sec.effect` | **0.279** | 0.035 | 0.141 | 0.036 |
+| `sec.injection` | not asked | 0.085 | not asked | 0.069 |
+| `sec.intent` | 0.118 | 0.128 | **0.299** | 0.047 |
+| `sec.reversibility` | 0.170 | 0.057 | 0.130 | 0.000 |
+| `sec.trifecta.private_source` | 0.131 | 0.134 | 0.198 | 0.121 |
+| `sec.trifecta.sink` | 0.118 | 0.099 | 0.048 | 0.034 |
+| `sec.trifecta.untrusted_source` | 0.197 | 0.117 | 0.152 | 0.069 |
+
+- Kev's ECE is higher than Jev's on 12 of 14 label and set pairs, and reaches 0.30; Jev's is at most 0.13.
+- Example: on scenario intent Kev is right 97% of the time with mean p 0.67; Jev is right 100% with mean p 0.95.
+- **Only indicative at this size.** Real-session labels rest on 12–20 calls spread over 10 bins, so a few calls move ECE a lot, and scenario calls repeat across runs.
+
+**Effect:** Kev's `sec.<label>.p` understates how reliable its answers are, so a p cutoff tuned on Jev would drop many correct Kev answers. Compare p only within one labeler.
