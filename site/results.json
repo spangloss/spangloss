@@ -5,8 +5,8 @@
   "provenance": {
     "generator": "python -m spangloss.resultsgen",
     "generated": "2026-11-07",
-    "commit": "0a4344ceb3523ea8c0cf570227d13cc9f942263d",
-    "source_clean": false,
+    "commit": "235ecf51257d5991e92ee7d9f94dae8c697a2a3e",
+    "source_clean": true,
     "inputs": [
       {
         "set": "real_sessions",
