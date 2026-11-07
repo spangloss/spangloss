@@ -166,9 +166,11 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
-# mkdocs/Zensical documentation; site/labels.json is generated and committed
+# mkdocs/Zensical documentation; site/labels.json and site/results.json are
+# generated and committed
 /site/*
 !/site/labels.json
+!/site/results.json
 
 # mypy
 .mypy_cache/

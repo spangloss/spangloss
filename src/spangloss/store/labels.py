@@ -64,7 +64,12 @@ class Rederived:
 
 
 class LabelStore:
-    def __init__(self, path: Path = DEFAULT_DB) -> None:
+    def __init__(self, path: Path = DEFAULT_DB, *, read_only: bool = False) -> None:
+        """read_only opens an existing store without creating or migrating it, so
+        its file is left byte for byte as it was."""
+        if read_only:
+            self._conn = duckdb.connect(str(path), read_only=True)
+            return
         path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = duckdb.connect(str(path))
         self._conn.execute(SCHEMA)
