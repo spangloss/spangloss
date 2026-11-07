@@ -10,7 +10,13 @@ repos:
     rev: v1.5.0
     hooks:
       - id: detect-secrets
-        args: [--baseline, .secrets.baseline]
+        # Generated results record their inputs by digest: skip only lines that are
+        # exactly a "commit" or "sha256" key with a hex value.
+        args:
+          - --baseline
+          - .secrets.baseline
+          - --exclude-lines
+          - '^\s*"(commit|sha256)": "[0-9a-f]{40}([0-9a-f]{24})?",?$'
         # Scenario fixtures hold listed fakes; verify-fakes checks them instead.
         exclude: uv\.lock|^scenarios/
 
