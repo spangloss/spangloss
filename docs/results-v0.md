@@ -2,11 +2,9 @@
 
 <!-- Generated from site/results.json by python -m spangloss.resultsgen; don't edit by hand. -->
 
-> **Lead (proposed):**
->
-> These are Spangloss v0's per-label results at taxonomy 0.4.0: how often each labeler's answers match gold labels, on two gold sets scored separately. The real-session set is small (20 hand-labeled calls), and the scenario set repeats call shapes across runs, so read the intervals and the per-shape column, not only the accuracy. Jev, the hosted labeler, answers every label. Kev, the local labeler, answers every label but injection, where its v0 answers weren't usable. Both sets come from coding sessions in one agent, and telemetry gaps limit what any label can see, so these numbers describe these sets, not agent sessions in general.
+These are Spangloss v0's per-label results at taxonomy 0.4.0, on two gold sets scored separately: 20 hand-labeled calls from real sessions and 111 calls from seeded scenarios. On the scenarios, each label's accuracy runs from 86% to 100% for Jev, the hosted labeler, and from 89% to 100% for Kev, the local one. Jev caught all 11 planted injections; Kev isn't scored on injection in v0. Both labelers over-call secrets (precision 5/17 for Kev, 5/20 for Jev). Kev's calibration is weaker (ECE up to 0.30, against at most 0.13 for Jev), and on real sessions its intent accuracy drops to 61.5%. The real-session set is small and holds no injections, so Jev's 100% there shows only that it raised no false alarms. All of it comes from one agent's coding sessions: these numbers describe these sets, not agent sessions in general.
 
-Taxonomy 0.4.0. Generated 2026-11-06 at commit `cfd63bb`. Labelers: Kev (local), Jev (hosted). † marks a cell resting on fewer than 10 calls.
+Taxonomy 0.4.0. Generated 2026-11-06 at commit `92ad052`. Labelers: Kev (local), Jev (hosted). † marks a cell resting on fewer than 10 calls.
 
 ## Gold sets
 
@@ -86,19 +84,30 @@ Written by code, not by a labeler, and not counted in the table above.
 
 ## Injection by call shape
 
-Gold answers for `sec.injection` and how many calls each labeler answered `yes`, by call shape. The overall accuracy hides which kinds of content a labeler gets right.
+Gold answers for `sec.injection` and how many calls each labeler that reports it answered `yes`, by call shape. The overall accuracy hides which kinds of content a labeler gets right.
 
-| Gold set | Call shape | Gold | n | Kev `yes` | Jev `yes` |
-| --- | --- | --- | --- | --- | --- |
-| Real sessions | real-session calls | `no` | 15 | not reported | 0 of 14 labeled |
-| Seeded scenarios | curl control | `yes` | 3 † | not reported | 3 |
-| Seeded scenarios | dependency README | `yes` | 8 † | not reported | 8 |
-| Seeded scenarios | WebFetch summary reporting an injection | `no` | 6 † | not reported | 0 |
-| Seeded scenarios | security doc with framed examples | `no` | 4 † | not reported | 0 |
-| Seeded scenarios | agent instruction file with build steps | `no` | 4 † | not reported | 0 |
-| Seeded scenarios | other scenario calls | `no` | 42 | not reported | 0 |
+| Gold set | Call shape | Gold | n | Jev `yes` |
+| --- | --- | --- | --- | --- |
+| Real sessions | real-session calls | `no` | 15 | 0 of 14 labeled |
+| Seeded scenarios | curl control | `yes` | 3 † | 3 |
+| Seeded scenarios | dependency README | `yes` | 8 † | 8 |
+| Seeded scenarios | WebFetch summary reporting an injection | `no` | 6 † | 0 |
+| Seeded scenarios | security doc with framed examples | `no` | 4 † | 0 |
+| Seeded scenarios | agent instruction file with build steps | `no` | 4 † | 0 |
+| Seeded scenarios | other scenario calls | `no` | 42 | 0 |
 
 Kev doesn't report `sec.injection` in v0; [known limitations](findings/known-limitations.md#secinjection-needs-jev) has its numbers from before that decision.
+
+## Known limitations
+
+Weaknesses v0 ships with, written up with their evidence:
+
+- [`sec.injection` needs Jev](findings/known-limitations.md#secinjection-needs-jev)
+- [`.env.test` Reads with captured content are often labeled `secrets`](findings/known-limitations.md#envtest-reads-with-captured-content-are-often-labeled-secrets)
+- [`sec.data_class` `secrets` has low precision](findings/known-limitations.md#secdata_class-secrets-has-low-precision)
+- [Kev's `sec.intent` misses on real-session Bash calls](findings/known-limitations.md#kevs-secintent-misses-on-real-session-bash-calls)
+- [Trifecta errors on real sessions](findings/known-limitations.md#trifecta-errors-on-real-sessions)
+- [Kev is less well calibrated than Jev](findings/known-limitations.md#kev-is-less-well-calibrated-than-jev)
 
 ## Method
 

@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -60,6 +61,24 @@ def test_check_fails_when_an_input_changed(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(resultsgen, "JSON_OUTPUT", json_path)
     monkeypatch.setattr(resultsgen, "MD_OUTPUT", md_path)
     assert main(["--check"]) == 1
+
+
+def github_anchor(heading: str) -> str:
+    return re.sub(r"[^\w\- ]", "", heading.strip().lower()).replace(" ", "-")
+
+
+def test_known_limitation_links_resolve() -> None:
+    doc = Path(resultsgen.KNOWN_LIMITATIONS).read_text(encoding="utf-8")
+    anchors = {github_anchor(h) for h in re.findall(r"^## (.+)$", doc, re.MULTILINE)}
+    for _, anchor in resultsgen.LIMITATIONS:
+        assert anchor in anchors
+    assert resultsgen.NOT_REPORTED_SEE.split("#", 1)[1] in anchors
+
+
+def test_injection_table_has_no_column_for_a_labeler_that_does_not_report_it() -> None:
+    data = json.loads(JSON_OUTPUT.read_text(encoding="utf-8"))
+    md = render_markdown(data)
+    assert "| Jev `yes` |" in md and "Kev `yes`" not in md
 
 
 def record(span: str, answer: str, **source) -> dict:

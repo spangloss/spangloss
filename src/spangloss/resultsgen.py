@@ -44,6 +44,25 @@ INJECTION = "sec.injection"
 DATA_CLASS = "sec.data_class"
 KNOWN_LIMITATIONS = "docs/findings/known-limitations.md"
 NOT_REPORTED_SEE = f"{KNOWN_LIMITATIONS}#secinjection-needs-jev"
+# Sections of known-limitations.md the results link to, by heading text and anchor;
+# test_resultsgen checks each anchor against the file's headings.
+LIMITATIONS = (
+    ("`sec.injection` needs Jev", "secinjection-needs-jev"),
+    (
+        "`.env.test` Reads with captured content are often labeled `secrets`",
+        "envtest-reads-with-captured-content-are-often-labeled-secrets",
+    ),
+    (
+        "`sec.data_class` `secrets` has low precision",
+        "secdata_class-secrets-has-low-precision",
+    ),
+    (
+        "Kev's `sec.intent` misses on real-session Bash calls",
+        "kevs-secintent-misses-on-real-session-bash-calls",
+    ),
+    ("Trifecta errors on real sessions", "trifecta-errors-on-real-sessions"),
+    ("Kev is less well calibrated than Jev", "kev-is-less-well-calibrated-than-jev"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,19 +121,22 @@ SHAPE_ORDER = (
     REAL_SESSION,
 )
 
-# Owner approves or rewrites the lead; until then it is "proposed".
+# The owner's approved lead.
 LEAD = {
-    "status": "proposed",
+    "status": "approved",
     "text": (
-        "These are Spangloss v0's per-label results at taxonomy 0.4.0: how often"
-        " each labeler's answers match gold labels, on two gold sets scored"
-        " separately. The real-session set is small (20 hand-labeled calls), and the"
-        " scenario set repeats call shapes across runs, so read the intervals and the"
-        " per-shape column, not only the accuracy. Jev, the hosted labeler, answers"
-        " every label. Kev, the local labeler, answers every label but injection,"
-        " where its v0 answers weren't usable. Both sets come from coding sessions"
-        " in one agent, and telemetry gaps limit what any label can see, so these"
-        " numbers describe these sets, not agent sessions in general."
+        "These are Spangloss v0's per-label results at taxonomy 0.4.0, on two gold"
+        " sets scored separately: 20 hand-labeled calls from real sessions and 111"
+        " calls from seeded scenarios. On the scenarios, each label's accuracy runs"
+        " from 86% to 100% for Jev, the hosted labeler, and from 89% to 100% for"
+        " Kev, the local one. Jev caught all 11 planted injections; Kev isn't scored"
+        " on injection in v0. Both labelers over-call secrets (precision 5/17 for"
+        " Kev, 5/20 for Jev). Kev's calibration is weaker (ECE up to 0.30, against"
+        " at most 0.13 for Jev), and on real sessions its intent accuracy drops to"
+        " 61.5%. The real-session set is small and holds no injections, so Jev's"
+        " 100% there shows only that it raised no false alarms. All of it comes from"
+        " one agent's coding sessions: these numbers describe these sets, not agent"
+        " sessions in general."
     ),
 }
 
@@ -189,6 +211,10 @@ def build(sets: Iterable[GoldSet] = GOLD_SETS, today: date | None = None) -> dic
                 SHAPE_ORDER.index(r["shape"]),
             ),
         ),
+        "known_limitations": [
+            {"title": title, "see": f"{KNOWN_LIMITATIONS}#{anchor}"}
+            for title, anchor in LIMITATIONS
+        ],
         "method": _method_notes(gold_sets),
     }
 
@@ -483,6 +509,14 @@ def render_markdown(data: dict[str, Any]) -> str:
     for s in data["gold_sets"]:
         lines += _md_gold_set(s, names, small)
     lines += _md_injection(data, names, small)
+    lines += [
+        "",
+        "## Known limitations",
+        "",
+        "Weaknesses v0 ships with, written up with their evidence:",
+        "",
+    ]
+    lines += [f"- {_md_link(x['see'], x['title'])}" for x in data["known_limitations"]]
     lines += ["", "## Method", ""]
     for note in data["method"]:
         see = ", ".join(_md_link(p) for p in note["see"])
@@ -544,14 +578,15 @@ def _md_gold_set(s: dict[str, Any], names: dict[str, str], small: int) -> list[s
 
 def _md_injection(data: dict[str, Any], names: dict[str, str], small: int) -> list:
     set_names = {s["id"]: s["name"] for s in data["gold_sets"]}
-    backends = [m["id"] for m in data["models"]]
+    # A labeler that doesn't report injection gets no column, only the note below.
+    backends = [m["id"] for m in data["models"] if INJECTION not in m["not_reported"]]
     lines = [
         "",
         "## Injection by call shape",
         "",
         (
-            "Gold answers for `sec.injection` and how many calls each labeler answered"
-            " `yes`, by call shape. The overall accuracy hides which kinds of content a"
+            "Gold answers for `sec.injection` and how many calls each labeler that"
+            " reports it answered `yes`, by call shape. The overall accuracy hides which kinds of content a"
             " labeler gets right."
         ),
         "",
