@@ -123,12 +123,10 @@ The test fixtures hold a short synthetic Claude Code session:
 ```
 uv run spangloss parse tests/fixtures/claude_code_traces.jsonl --logs tests/fixtures/claude_code_logs.jsonl
 uv run spangloss export-sheet --limit 20
-uv run spangloss rules
 ```
 
 - `parse` writes one record per tool call to `data/parsed/tool_calls.jsonl` and prints how many calls had only a name, arguments or content to judge.
 - `export-sheet` writes those calls to `data/eval/sheet_001.csv`, the sheet you fill in to make gold labels by hand.
-- `rules` runs the detection rules over stored labels. Before any labeling it stops with `error: no labels … run spangloss label first`, which is the next step.
 
 Labeling needs Kev or Jev (below). For what labeling produces and how well it scores, see [spangloss.ai/results](https://spangloss.ai/results/) and [docs/results-v0.md](docs/results-v0.md).
 
@@ -156,7 +154,7 @@ uv run spangloss score
 
 `score` needs gold labels, which you make with `export-sheet` and `import-sheet`: the evaluation data behind the published results isn't committed yet.
 
-- **Kev** is a small open decision model with the same API as Jev, run on your own machine: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev) (Apache-2.0, weights on Hugging Face). Spangloss expects it at `127.0.0.1:8009`. From a clone of Kev, `uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009` starts Kev-4B; Kev's README lists the hardware each model needs. In v0, `spangloss label` reports `sec.injection` as unsupported for Kev; see [Deployment guidance](#deployment-guidance).
+- **Kev** is a small open decision model with the same API as Jev, run on your own machine: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev) (Apache-2.0, weights on Hugging Face). Spangloss expects it at `127.0.0.1:8009`. From a clone of Kev, `uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b@v1.0 --port 8009` starts Kev-4B, the model behind the published results (`jaredpalmer/kev-4b@v1.0`); Kev's README lists the hardware each model needs. In v0, `spangloss label` reports `sec.injection` as unsupported for Kev; see [Deployment guidance](#deployment-guidance).
 - **Jev** is TypeSafe's hosted model. Get an API key from the [TypeSafe console](https://console.typesafe.ai/keys) and put it in `.env`, which is git-ignored, as `TYPESAFE_API_KEY=…`. Before sending a call, Jev's backend refuses any call that references `.env` files or contains a likely secret.
 - **Your own MCP servers:** set `mcp.first_party_servers` in `spangloss.toml` (copy `spangloss.example.toml`). The `untrusted_source` label for these calls is derived in code, without asking a model; see [What Spangloss is not](#what-spangloss-is-not) and [Deployment guidance](#deployment-guidance).
 

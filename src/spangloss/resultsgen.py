@@ -107,6 +107,12 @@ GOLD_SETS = (
 )
 # (backend, display name, where it runs), in display order.
 MODELS = (("kev", "Kev", "local"), ("jev", "Jev", "hosted"))
+# The weights behind each labeler's stored labels, which record only the model name
+# sent (sec.model). Kev: every kev/kev-latest label at 0.4.0 was written on
+# 2026-11-03 by the server that has held port 8009 since 2026-10-31, started as
+# `kev.serve --run jaredpalmer/kev-4b@v1.0`; its /v1/models card names that run.
+# Jev: the hosted API's version wasn't recorded, so it is None, never a guess.
+CHECKPOINTS: dict[str, str | None] = {"kev": "jaredpalmer/kev-4b@v1.0", "jev": None}
 
 # Generic names for injection call shapes. Scenario records are named by their
 # scenario and expectation, hand-reviewed scenario records by their review sheet.
@@ -465,6 +471,7 @@ def build(sets: Iterable[GoldSet] = GOLD_SETS, today: date | None = None) -> dic
                 "name": name,
                 "runs": where,
                 "sec_model": _one(sec_models.get(backend, set()), f"{backend} models"),
+                "checkpoint": CHECKPOINTS[backend],
                 "not_reported": sorted(unsupported_labels(backend)),
             }
             for backend, name, where in MODELS
@@ -895,7 +902,9 @@ def render_markdown(data: dict[str, Any]) -> str:
     lines += [
         f"Taxonomy {data['taxonomy']}. Generated {prov['generated']} at commit"
         f" `{prov['commit'][:7]}`. Labelers: "
-        + ", ".join(f"{m['name']} ({m['runs']})" for m in data["models"])
+        + ", ".join(
+            f"{m['name']} ({m['runs']}, {_checkpoint(m)})" for m in data["models"]
+        )
         + f". † marks a cell resting on fewer than {small} calls.",
     ]
     findings = data["findings"]
@@ -1078,6 +1087,11 @@ def _pct(value: float | None, sign: str = "%") -> str:
         return "—"
     text = f"{value:.1%}"
     return text if sign else text.removesuffix("%")
+
+
+def _checkpoint(model: dict[str, Any]) -> str:
+    checkpoint = model.get("checkpoint")
+    return f"`{checkpoint}`" if checkpoint else "version not recorded"
 
 
 def _dec(value: float | None) -> str:

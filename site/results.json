@@ -4,9 +4,9 @@
   "taxonomy": "0.4.0",
   "provenance": {
     "generator": "python -m spangloss.resultsgen",
-    "generated": "2026-11-07",
-    "commit": "7592c4013338a525199bb32070a02e6dc3a07367",
-    "source_clean": true,
+    "generated": "2026-11-08",
+    "commit": "89c7a8073d20ce2bb4e8866e2e5ad41fe5d32d69",
+    "source_clean": false,
     "inputs": [
       {
         "set": "real_sessions",
@@ -59,6 +59,7 @@
       "name": "Kev",
       "runs": "local",
       "sec_model": "kev/kev-latest",
+      "checkpoint": "jaredpalmer/kev-4b@v1.0",
       "not_reported": [
         "sec.injection"
       ]
@@ -68,6 +69,7 @@
       "name": "Jev",
       "runs": "hosted",
       "sec_model": "jev/jev-latest",
+      "checkpoint": null,
       "not_reported": []
     }
   ],

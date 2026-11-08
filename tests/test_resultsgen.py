@@ -41,6 +41,16 @@ def test_committed_results_hold_no_call_identifiers() -> None:
         assert row["shape"] in resultsgen.SHAPE_ORDER
 
 
+def test_models_record_their_checkpoint_or_none() -> None:
+    data = json.loads(JSON_OUTPUT.read_text(encoding="utf-8"))
+    models = {m["id"]: m for m in data["models"]}
+    assert models["kev"]["checkpoint"] == "jaredpalmer/kev-4b@v1.0"
+    assert models["jev"]["checkpoint"] is None  # not recorded, never guessed
+    md = render_markdown(data)
+    assert "Kev (local, `jaredpalmer/kev-4b@v1.0`)" in md
+    assert "Jev (hosted, version not recorded)" in md
+
+
 def test_check_fails_when_markdown_is_edited(tmp_path, monkeypatch) -> None:
     data = json.loads(JSON_OUTPUT.read_text(encoding="utf-8"))
     data["provenance"]["inputs"] = []  # no local inputs to compare
