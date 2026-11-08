@@ -484,6 +484,12 @@ def _rules(calls_path: Path, db: Path, model: str | None) -> int:
     calls = read_calls(calls_path)
     with LabelStore(db) as store:
         models = store.models()
+        if not models:
+            print(
+                f"error: no labels in {db} to run rules over; run spangloss label first",
+                file=sys.stderr,
+            )
+            return 1
         if model is None:
             if len(models) != 1:
                 found = ", ".join(models) or "none"

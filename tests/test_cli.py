@@ -64,6 +64,16 @@ def test_rules_missing_calls(tmp_path: Path, capsys) -> None:
     )
 
 
+def test_rules_before_any_labels(tmp_path: Path, capsys) -> None:
+    calls = parsed(tmp_path)
+    capsys.readouterr()
+    db = tmp_path / "labels.duckdb"
+    assert main(["rules", "--input", str(calls), "--db", str(db)]) == 1
+    assert error_line(capsys) == (
+        f"error: no labels in {db} to run rules over; run spangloss label first"
+    )
+
+
 def test_export_sheet_missing_calls(tmp_path: Path, capsys) -> None:
     missing = tmp_path / "tool_calls.jsonl"
     out = tmp_path / "sheet.csv"
