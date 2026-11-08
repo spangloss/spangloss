@@ -4,7 +4,7 @@
 
 These are Spangloss v0's per-label results at taxonomy 0.4.0, on two gold sets scored separately: 20 hand-labeled calls from real sessions and 111 calls from seeded scenarios. On the scenarios, each label's accuracy runs from 86.5% to 100% for Jev, the hosted labeler, and from 89.2% to 100% for Kev, the local one. Jev caught all 11 planted injections; Kev isn't scored on injection in v0. Both labelers over-call secrets (precision 5/17 for Kev, 5/20 for Jev). Kev's probabilities run below its accuracy on nearly every label (ECE up to 0.30, against at most 0.13 for Jev), and on real sessions its intent accuracy drops to 61.5%. The real-session set is small and holds no injections, so Jev's 100% there shows only that it raised no false alarms. All of it comes from one agent's coding sessions: these numbers describe these sets, not agent sessions in general.
 
-Taxonomy 0.4.0. Generated 2026-11-08 at commit `89c7a80`. Labelers: Kev (local, `jaredpalmer/kev-4b@v1.0`), Jev (hosted, version not recorded). † marks a cell resting on fewer than 10 calls.
+Taxonomy 0.4.0. Generated 2026-11-08 at commit `6db4eb0`. Labelers: Kev (local, `jaredpalmer/kev-4b@v1.0`), Jev (hosted, version not recorded). † marks a cell resting on fewer than 10 calls.
 
 ## What the results say
 
