@@ -12,6 +12,8 @@ from typing import Any
 from typesafe_sdk import (
     Choice,
     Noul,
+    TypeSafeAPIConnectionError,
+    TypeSafeAPITimeoutError,
     TypeSafeBadRequestError,
     TypeSafeClient,
     TypeSafeUnprocessableEntityError,
@@ -20,6 +22,7 @@ from typesafe_sdk.constants import DEFAULT_BASE_URL
 
 from spangloss.backends.base import (
     AskResult,
+    BackendUnavailable,
     Distribution,
     EvidenceTooLong,
     QuestionSpec,
@@ -34,6 +37,7 @@ KEV_URL = "http://127.0.0.1:8009"
 KEV_MODEL = "kev-latest"
 JEV_MODEL = "jev-latest"
 JEV_KEY = "TYPESAFE_API_KEY"
+JEV_KEY_URL = "https://console.typesafe.ai/keys"
 TIMEOUT_SECONDS = 120.0  # long evidence on a laptop GPU can take tens of seconds
 
 # Request and response bodies are logged at debug level by the SDK; keep them out.
@@ -41,11 +45,15 @@ logging.getLogger("typesafe_sdk").setLevel(logging.WARNING)
 
 
 class TypeSafeBackend:
-    def __init__(self, name: str, model: str, client: TypeSafeClient) -> None:
+    def __init__(
+        self, name: str, model: str, client: TypeSafeClient, unreachable: str = ""
+    ) -> None:
         self.name = name
         self.model = f"{name}/{model}"
         self._model_name = model
         self._client = client
+        # What to tell the user when the server can't be reached at all.
+        self._unreachable = unreachable or f"{name} not reachable"
 
     def screen(self, call: ParsedToolCall) -> str | None:
         return None
@@ -60,6 +68,10 @@ class TypeSafeBackend:
                 model=self._model_name,
             )
         # Error text is not passed on: it may quote the request.
+        except TypeSafeAPITimeoutError:
+            raise  # a slow answer, not a missing server
+        except TypeSafeAPIConnectionError as e:
+            raise BackendUnavailable(self._unreachable) from e
         except TypeSafeUnprocessableEntityError as e:
             # Kev answers 422 for a state over its token limit.
             raise EvidenceTooLong(f"{self.name} rejected the request (422)") from e
@@ -91,8 +103,9 @@ class JevBackend(TypeSafeBackend):
         client: TypeSafeClient,
         fakes: frozenset[str] | None = None,
         scenario_spans: frozenset[str] | None = None,
+        unreachable: str = "",
     ) -> None:
-        super().__init__(name, model, client)
+        super().__init__(name, model, client, unreachable)
         self._fakes = read_fakes() if fakes is None else fakes
         self._scenario_spans = (
             verified_scenario_spans() if scenario_spans is None else scenario_spans
@@ -115,17 +128,31 @@ def kev_backend(base_url: str = KEV_URL, model: str = KEV_MODEL) -> TypeSafeBack
         timeout=TIMEOUT_SECONDS,
         compression=False,
     )
-    return TypeSafeBackend("kev", model, client)
+    return TypeSafeBackend(
+        "kev",
+        model,
+        client,
+        unreachable=f"Kev not reachable at {base_url} (start a Kev server; see README)"
+        " or use --backend jev",
+    )
 
 
 def jev_backend(env_file: Path = Path(".env"), model: str = JEV_MODEL) -> JevBackend:
     key = read_env_value(env_file, JEV_KEY)
     if not key:
-        raise RuntimeError(f"{JEV_KEY} is not set in {env_file}")
+        raise BackendUnavailable(
+            f"{JEV_KEY} is not set in {env_file} (add a line {JEV_KEY}=… with a key"
+            f" from {JEV_KEY_URL}) or use --backend kev"
+        )
     client = TypeSafeClient(
         api_key=key, base_url=DEFAULT_BASE_URL, model=model, timeout=TIMEOUT_SECONDS
     )
-    return JevBackend("jev", model, client)
+    return JevBackend(
+        "jev",
+        model,
+        client,
+        unreachable=f"Jev not reachable at {DEFAULT_BASE_URL} (check your network)",
+    )
 
 
 def read_env_value(path: Path, key: str) -> str | None:

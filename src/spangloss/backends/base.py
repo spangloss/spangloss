@@ -33,6 +33,11 @@ class EvidenceTooLong(RequestRejected):
     """The backend refused the evidence as too long for its context."""
 
 
+class BackendUnavailable(Exception):
+    """The backend can't be used at all: not configured, or not reachable. The run
+    stops; the message says what to do."""
+
+
 class Backend(Protocol):
     name: str
     model: str  # recorded as sec.model

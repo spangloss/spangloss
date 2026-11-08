@@ -9,6 +9,7 @@ from pathlib import Path
 
 from spangloss import __version__
 from spangloss.backends import Backend
+from spangloss.backends.base import BackendUnavailable
 from spangloss.backends.support import BACKENDS
 from spangloss.config import DEFAULT_CONFIG, ConfigError, load_config
 from spangloss.eval import (
@@ -31,6 +32,8 @@ from spangloss.store import DEFAULT_DB, LabelStore
 DEFAULT_OUTPUT = Path("data/parsed/tool_calls.jsonl")
 SCENARIO_GOLD = Path("data/scenarios/gold.jsonl")
 SCENARIO_CALLS = Path("data/scenarios/tool_calls.jsonl")
+FIXTURE_TRACES = Path("tests/fixtures/claude_code_traces.jsonl")
+PARSE_FIRST = "run spangloss parse first"
 log = logging.getLogger("spangloss")
 
 
@@ -174,6 +177,41 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
+    inputs = _input_hints(args)
+    try:
+        return _run(args)
+    except FileNotFoundError as e:
+        hint = inputs.get(Path(e.filename)) if e.filename else None
+        if hint is None:
+            raise
+        print(f"error: {e.filename} not found; {hint}", file=sys.stderr)
+        return 1
+    except BackendUnavailable as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
+def _input_hints(args: argparse.Namespace) -> dict[Path, str]:
+    """The command's input files, each with what to do when it's missing."""
+    if args.command == "parse":
+        hints = {
+            args.input: "capture a session first (docs/capture.md), or try"
+            f" {FIXTURE_TRACES}"
+        }
+        if args.logs:
+            hints[args.logs] = "pass the logs file captured with the traces"
+        return hints
+    if args.command in ("label", "rederive", "rules", "export-sheet"):
+        return {args.input: PARSE_FIRST}
+    if args.command == "import-sheet":
+        return {
+            args.sheet: "write one with spangloss export-sheet and fill it in",
+            args.input: PARSE_FIRST,
+        }
+    return {}
+
+
+def _run(args: argparse.Namespace) -> int:
     if args.command == "scenarios":
         return _scenarios(args)
     if args.command == "gold":
