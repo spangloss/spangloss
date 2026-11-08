@@ -4,9 +4,11 @@ Your agent's actions, glossed.
 
 The name is span + gloss: an OpenTelemetry span, annotated.
 
-Spangloss adds security labels to AI agent telemetry. It reads the OpenTelemetry spans an agent session emits, asks a decision model a fixed set of narrow, typed questions about each tool call, and writes the answers back as `sec.*` attributes with probabilities. Detection rules and audits then run over the labels, not over raw prompts and tool output.
+Spangloss is a research project on security labels for AI agent telemetry. It reads the OpenTelemetry spans an agent session emits, asks a decision model a fixed set of narrow, typed questions about each tool call, and writes the answers back as `sec.*` attributes with probabilities. Detection rules and audits then run over the labels, not over raw prompts and tool output.
 
 It is detective, not preventive: Spangloss never blocks an agent action.
+
+It isn't a product. The aim is to measure how far labels over agent telemetry can go, including where they fall short: see the [results](https://spangloss.ai/results/) and [Status](#status).
 
 ## Why
 
