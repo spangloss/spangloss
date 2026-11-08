@@ -54,7 +54,7 @@ Real sessions rarely contain the cases that matter most, such as a secret read o
 - **Span content is untrusted.** Instructions inside tool output are evidence to label, never instructions to follow.
 - **Derive what is known.** Structural facts come from the parser, not from a model.
 - **Vendor-neutral attributes.** Keys live under `sec.*`, not under the project's name.
-- **No raw session data in git.** Only redacted, labeled evaluation data is ever published.
+- **No raw session data in git.** Raw sessions are never published; a redacted evaluation set may be published later.
 
 ## Threat model & non-goals
 
@@ -89,7 +89,7 @@ The line between debugging and security is blurry anyway. "Why did my agent dele
 
 ## Status
 
-Pre-v0. The first public release, with per-label evaluation results, is planned for November 29, 2026. Until then there are no published accuracy figures.
+Pre-v0. The first public release is planned for November 29, 2026. Per-label results at taxonomy 0.4.0 are published in [docs/results-v0.md](docs/results-v0.md) and at [spangloss.ai/results](https://spangloss.ai/results/).
 
 The taxonomy is **0.4.0, frozen for v0** (tag `taxonomy-v0.4.0`). Changes found after the freeze wait for a later version.
 
@@ -97,7 +97,7 @@ What exists today:
 - capture and parsing for Claude Code;
 - the label cards, two backends and derived labels;
 - a DuckDB label store, the subagent taint rule and the scoring harness;
-- seven seeded scenarios: secrets read, web-page injection through WebFetch and through curl, tainted delegation, a poisoned dependency, hard negatives (look-alike cases that should not be flagged; local only, not published) and tool poisoning through an MCP tool description.
+- seven seeded scenarios: secrets read, web-page injection through WebFetch and through curl, tainted delegation, a poisoned dependency, hard negatives (look-alike cases that should not be flagged; its runs and gold aren't published) and tool poisoning through an MCP tool description.
 
 Known limits:
 - **Claude Code's telemetry has gaps** that bound what any label can see. Six are documented: Grep and Glob output, subagent handback content, MCP tool descriptions and a workspace `CLAUDE.md` are not captured; long arguments are cut; and WebFetch output is a model's summary of the page. Tool poisoning through MCP tool descriptions and a poisoned `CLAUDE.md` are therefore invisible today. Details and evidence are in [docs/findings/capture-gaps.md](docs/findings/capture-gaps.md).
@@ -116,9 +116,28 @@ uv sync
 uv run pytest
 ```
 
-Capture a session (details in [docs/capture.md](docs/capture.md)):
+### Try it without capture or a model
+
+The test fixtures hold a short synthetic Claude Code session:
 
 ```
+uv run spangloss parse tests/fixtures/claude_code_traces.jsonl --logs tests/fixtures/claude_code_logs.jsonl
+uv run spangloss export-sheet --limit 20
+uv run spangloss rules
+```
+
+- `parse` writes one record per tool call to `data/parsed/tool_calls.jsonl` and prints how many calls had only a name, arguments or content to judge.
+- `export-sheet` writes those calls to `data/eval/sheet_001.csv`, the sheet you fill in to make gold labels by hand.
+- `rules` runs the detection rules over stored labels. Before any labeling it stops with `error: no labels … run spangloss label first`, which is the next step.
+
+Labeling needs Kev or Jev (below). For what labeling produces and how well it scores, see [spangloss.ai/results](https://spangloss.ai/results/) and [docs/results-v0.md](docs/results-v0.md).
+
+### Capture a session
+
+Details are in [docs/capture.md](docs/capture.md). Ports 4317, 4318 and 16686 must be free.
+
+```
+mkdir -p data/raw
 docker compose up -d           # Collector and Jaeger, bound to localhost
 source scripts/telemetry.sh    # in the shell you'll run claude from
 claude
@@ -135,8 +154,10 @@ uv run spangloss import-sheet <sheet.csv>
 uv run spangloss score
 ```
 
-- **Kev** expects a local server at `127.0.0.1:8009`. In v0, `spangloss label` reports `sec.injection` as unsupported for Kev; see [Deployment guidance](#deployment-guidance).
-- **Jev** reads `TYPESAFE_API_KEY` from `.env`, which is git-ignored. Before sending a call, Jev's backend refuses any call that references `.env` files or contains a likely secret.
+`score` needs gold labels, which you make with `export-sheet` and `import-sheet`: the evaluation data behind the published results isn't committed yet.
+
+- **Kev** is a small open decision model with the same API as Jev, run on your own machine: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev) (Apache-2.0, weights on Hugging Face). Spangloss expects it at `127.0.0.1:8009`. From a clone of Kev, `uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009` starts Kev-4B; Kev's README lists the hardware each model needs. In v0, `spangloss label` reports `sec.injection` as unsupported for Kev; see [Deployment guidance](#deployment-guidance).
+- **Jev** is TypeSafe's hosted model. Get an API key from the [TypeSafe console](https://console.typesafe.ai/keys) and put it in `.env`, which is git-ignored, as `TYPESAFE_API_KEY=…`. Before sending a call, Jev's backend refuses any call that references `.env` files or contains a likely secret.
 - **Your own MCP servers:** set `mcp.first_party_servers` in `spangloss.toml` (copy `spangloss.example.toml`). The `untrusted_source` label for these calls is derived in code, without asking a model; see [What Spangloss is not](#what-spangloss-is-not) and [Deployment guidance](#deployment-guidance).
 
 Seeded scenarios call the model API and need a dedicated, spend-limited key; see [docs/scenarios-design.md](docs/scenarios-design.md) before running them.
