@@ -54,7 +54,7 @@ def test_check_fails_when_markdown_is_edited(tmp_path, monkeypatch) -> None:
     assert main(["--check"]) == 1
 
 
-def test_check_fails_when_an_input_changed(tmp_path, monkeypatch) -> None:
+def test_check_data_fails_when_an_input_changed(tmp_path, monkeypatch) -> None:
     data = json.loads(JSON_OUTPUT.read_text(encoding="utf-8"))
     store = tmp_path / "labels.duckdb"
     store.write_bytes(b"changed")
@@ -64,7 +64,8 @@ def test_check_fails_when_an_input_changed(tmp_path, monkeypatch) -> None:
     md_path.write_text(render_markdown(data), encoding="utf-8")
     monkeypatch.setattr(resultsgen, "JSON_OUTPUT", json_path)
     monkeypatch.setattr(resultsgen, "MD_OUTPUT", md_path)
-    assert main(["--check"]) == 1
+    assert main(["--check"]) == 0  # someone else's data/ doesn't fail --check
+    assert main(["--check-data"]) == 1
 
 
 def github_anchor(heading: str) -> str:

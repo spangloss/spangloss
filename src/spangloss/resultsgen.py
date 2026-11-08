@@ -1,14 +1,17 @@
 """Generate the v0 per-label results: site/results.json and docs/results-v0.md.
 
-    uv run python -m spangloss.resultsgen          # write both from the label stores
-    uv run python -m spangloss.resultsgen --check  # fail if either is out of date
+    uv run python -m spangloss.resultsgen               # write both from the label stores
+    uv run python -m spangloss.resultsgen --check       # fail if the Markdown is stale
+    uv run python -m spangloss.resultsgen --check-data  # fail if the inputs changed
 
 The numbers come from eval/score.py over the stored labels and gold, with no model
 calls. data/ is git-ignored, so site/results.json is a committed snapshot: it is
 generated locally and records its inputs (gold files, label stores, call files) by
 hash. docs/results-v0.md is rendered from site/results.json alone, so a fresh clone
-can check it. `--check` fails when the Markdown doesn't match the JSON, and, where
-the inputs exist locally, when any input's hash has changed since generation.
+can check it: `--check` fails when the Markdown doesn't match the JSON, and reads
+nothing in data/. `--check-data` is for whoever generated the results: it fails when
+an input that exists locally has a different hash from the one recorded. Anyone
+else's data/ holds different files, so it would fail there by design.
 
 Only aggregates leave data/: counts, scores and generic shape names, never call
 contents, arguments, paths or session IDs. The two gold sets are scored apart and
@@ -1096,16 +1099,26 @@ def stale_inputs(data: dict[str, Any]) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog=GENERATOR)
-    parser.add_argument("--check", action="store_true", help="fail if out of date")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help=f"fail if {MD_OUTPUT} doesn't render from {JSON_OUTPUT}",
+    )
+    parser.add_argument(
+        "--check-data",
+        action="store_true",
+        help=f"fail if a local input differs from the one {JSON_OUTPUT} records",
+    )
     args = parser.parse_args(argv)
-    if args.check:
+    if args.check or args.check_data:
         data = json.loads(JSON_OUTPUT.read_text(encoding="utf-8"))
         ok = True
-        if MD_OUTPUT.read_text(encoding="utf-8") != render_markdown(data):
+        if args.check and MD_OUTPUT.read_text(encoding="utf-8") != render_markdown(
+            data
+        ):
             print(f"{MD_OUTPUT} doesn't match {JSON_OUTPUT}", file=sys.stderr)
             ok = False
-        stale = stale_inputs(data)
-        if stale:
+        if args.check_data and (stale := stale_inputs(data)):
             print(
                 f"{JSON_OUTPUT} is stale; these inputs changed: {', '.join(stale)}",
                 file=sys.stderr,
