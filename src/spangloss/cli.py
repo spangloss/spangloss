@@ -727,8 +727,9 @@ def _label(
         file=sys.stderr,
     )
     if start and run_id:
-        print(f"{backend.model}: run {run_id}, {_checkpoint(start)}", file=sys.stderr)
-        if end.checkpoint != start.checkpoint:
+        named = start if start.checkpoint else end
+        print(f"{backend.model}: run {run_id}, {_checkpoint(named)}", file=sys.stderr)
+        if start.checkpoint and end.checkpoint != start.checkpoint:
             print(
                 f"warning: {backend.model} checkpoint changed during the run, from"
                 f" {start.checkpoint or 'unnamed'} to {end.checkpoint or 'unnamed'};"

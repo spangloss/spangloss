@@ -177,10 +177,14 @@ class LabelStore:
     def finish_run(
         self, run_id: str, info: ModelInfo, calls_labeled: int, labels_written: int
     ) -> None:
+        # A version only the answers name (Jev's) is unknown at the start; once
+        # every answer named one, it is the run's checkpoint, not a change.
         self._conn.execute(
-            "UPDATE runs SET checkpoint_at_end = ?, served = ?, calls_labeled = ?,"
+            "UPDATE runs SET checkpoint = coalesce(checkpoint, ?),"
+            " checkpoint_at_end = ?, served = ?, calls_labeled = ?,"
             " labels_written = ?, finished_at = ? WHERE run_id = ?",
             [
+                info.checkpoint,
                 info.checkpoint,
                 list(info.served),
                 calls_labeled,

@@ -221,6 +221,25 @@ def test_a_checkpoint_change_mid_run_is_warned_and_kept(
     assert p.changed > 0 and p.mixed
 
 
+def test_a_version_only_the_answers_name_is_the_runs_checkpoint(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    # Jev: nothing named before the first answer; every answer names jev-1.2.
+    backend = _Backend(
+        ModelInfo(None, None, ()), ModelInfo("jev-1.2", None, ("jev-1.2",))
+    )
+    db = label(tmp_path, backend, monkeypatch)
+    err = capsys.readouterr().err
+    assert "checkpoint jev-1.2" in err
+    assert "warning" not in err
+    with LabelStore(db) as store:
+        [run] = store.runs()
+        [p] = store.provenance()
+    assert run["checkpoint"] == run["checkpoint_at_end"] == "jev-1.2"
+    assert p.by_checkpoint == {"jev-1.2": p.by_checkpoint["jev-1.2"]}
+    assert not p.changed and not p.mixed
+
+
 # --- provenance, as spangloss score shows it ---------------------------------
 
 
