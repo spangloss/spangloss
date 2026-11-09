@@ -185,6 +185,22 @@ def main(argv: list[str] | None = None) -> int:
         help=f"first-party MCP servers (default: {DEFAULT_CONFIG}, if present)",
     )
 
+    var = commands.add_parser(
+        "variance",
+        help="Compare repeated labeling passes, one store each: how often answers"
+        " change, per gold set, model and label.",
+    )
+    var.add_argument(
+        "--db", type=Path, action="append", required=True, help="one per pass"
+    )
+    var.add_argument(
+        "--gold",
+        action="append",
+        metavar="NAME=PATH",
+        help="a gold set to report separately (default: real_sessions="
+        f"{DEFAULT_GOLD} and scenarios={SCENARIO_GOLD})",
+    )
+
     rules = commands.add_parser(
         "rules", help="Run the detection rules over stored labels."
     )
@@ -238,6 +254,8 @@ def _run(args: argparse.Namespace) -> int:
         return _score(args.db, args.gold, args.input)
     if args.command == "rules":
         return _rules(args.input, args.db, args.model)
+    if args.command == "variance":
+        return _variance(args.db, args.gold)
     if args.command in ("label", "rederive"):
         try:
             config = (
@@ -333,6 +351,59 @@ def _score(db: Path, gold_path: Path, calls_path: Path) -> int:
         print(line)
     print(format_report(score(gold, stored, load_cards(), shapes), len(gold)))
     return 0
+
+
+def _variance(dbs: list[Path], gold_args: list[str] | None) -> int:
+    from spangloss.eval.variance import format_variance, variance
+
+    if len(dbs) < 2:
+        print("error: give at least two --db, one per pass", file=sys.stderr)
+        return 1
+    sets: dict[str, Path] = {}
+    for arg in gold_args or [
+        f"real_sessions={DEFAULT_GOLD}",
+        f"scenarios={SCENARIO_GOLD}",
+    ]:
+        name, sep, path = arg.partition("=")
+        if not sep or not name or not path:
+            print(f"error: --gold {arg!r}: use NAME=PATH", file=sys.stderr)
+            return 1
+        sets[name] = Path(path)
+    for db in dbs:
+        if not db.exists():
+            print(f"error: {db} not found", file=sys.stderr)
+            return 1
+    passes = []
+    checkpoints: list[dict[str, list[str | None]]] = []
+    for db in dbs:
+        with LabelStore(db, read_only=True) as store:
+            passes.append(store.stored_labels())
+            by_model: dict[str, list[str | None]] = {}
+            for run in store.runs():
+                by_model.setdefault(run["model"], []).append(run["checkpoint"])
+            checkpoints.append(by_model)
+    models = sorted(
+        set.intersection(*({x.model for x in p} for p in passes)) - {DERIVED_MODEL}
+    )
+    if not models:
+        print("error: no model has labels in every store", file=sys.stderr)
+        return 1
+    cards = load_cards()
+    print(f"Variance over {len(dbs)} passes: {', '.join(str(d) for d in dbs)}")
+    for name, path in sets.items():
+        spans = {r["span_id"] for r in read_gold(path)}
+        for model in models:
+            rows = variance(passes, model, spans, cards)
+            pass_checkpoints = [_one_checkpoint(c.get(model, [])) for c in checkpoints]
+            print()
+            print(format_variance(f"{name}, {model}:", rows, pass_checkpoints))
+    return 0
+
+
+def _one_checkpoint(recorded: list[str | None]) -> str | None:
+    """A store's checkpoint for one model; several are joined, none is None."""
+    named = sorted({c or "unnamed" for c in recorded})
+    return " + ".join(named) if named else None
 
 
 def _checkpoint(info: ModelInfo) -> str:

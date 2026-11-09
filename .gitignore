@@ -253,3 +253,7 @@ data/experiments/
 
 # macOS Finder metadata
 .DS_Store
+
+# Repeated labeling passes and other experiment stores (labels of session calls)
+data/variance/
+data/kev9b/
