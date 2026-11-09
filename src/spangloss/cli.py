@@ -3,6 +3,7 @@
 import argparse
 import json
 import logging
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -25,6 +26,7 @@ from spangloss.eval import (
 )
 from spangloss.parse import ParsedToolCall, parse_claude_code
 from spangloss.questions import label_call, load_cards
+from spangloss.questions.derived import DERIVED_MODEL
 from spangloss.questions.runner import DEFAULT_MAX_EVIDENCE_CHARS, derived_labels
 from spangloss.rules import RULES
 from spangloss.store import DEFAULT_DB, LabelStore
@@ -84,6 +86,21 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help=f"first-party MCP servers and other settings (default: {DEFAULT_CONFIG},"
         " if present)",
+    )
+    label.add_argument(
+        "--kev-url",
+        help="a Kev server other than the local one, such as one on Modal; needs"
+        " --name and a --db of its own. A server off this machine gets Jev's screen",
+    )
+    label.add_argument(
+        "--kev-key-var",
+        help="the .env variable holding that server's API key (the key itself never"
+        " goes on the command line)",
+    )
+    label.add_argument(
+        "--name",
+        help="the backend name recorded in sec.model for a --kev-url server, e.g."
+        " kev-9b. It answers every label, including ones the local Kev doesn't",
     )
 
     export = commands.add_parser(
@@ -233,8 +250,13 @@ def _run(args: argparse.Namespace) -> int:
             return 1
         if args.command == "rederive":
             return _rederive(args.input, args.db, config.first_party_mcp_servers)
+        if problem := _remote_kev_problem(args):
+            print(f"error: {problem}", file=sys.stderr)
+            return 1
         return _label(
-            make_backend(args.backend),
+            make_remote_kev(args.kev_url, args.name, args.kev_key_var)
+            if args.kev_url
+            else make_backend(args.backend),
             args.input,
             args.db,
             args.limit,
@@ -547,6 +569,40 @@ def _rules(calls_path: Path, db: Path, model: str | None) -> int:
             n = store.replace_findings(name, model, rule(calls, answers))
             print(f"{name}: {n} finding(s) over {model} labels", file=sys.stderr)
     return 0
+
+
+NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
+
+
+def _remote_kev_problem(args: argparse.Namespace) -> str | None:
+    """Why the --kev-url options can't be used as given, or None."""
+    if not args.kev_url:
+        if args.name or args.kev_key_var:
+            return "--name and --kev-key-var need --kev-url"
+        return None
+    if args.backend != "kev":
+        return "--kev-url needs --backend kev"
+    if not args.name:
+        return "--kev-url needs --name, the backend name its labels are stored under"
+    if not NAME.fullmatch(args.name) or args.name in (*BACKENDS, DERIVED_MODEL):
+        return (
+            f"--name {args.name!r}: use lowercase letters, digits and dashes, and not"
+            f" {', '.join((*BACKENDS, DERIVED_MODEL))}"
+        )
+    if args.db == DEFAULT_DB:
+        return "--kev-url needs a --db of its own, not the default store"
+    return None
+
+
+def make_remote_kev(url: str, name: str, key_var: str | None) -> Backend:
+    from spangloss.backends.typesafe import read_env_value, remote_kev_backend
+
+    key = None
+    if key_var:
+        key = read_env_value(Path(".env"), key_var)
+        if not key:
+            raise BackendUnavailable(f"{key_var} is not set in .env")
+    return remote_kev_backend(url, name, key)
 
 
 def make_backend(name: str) -> Backend:

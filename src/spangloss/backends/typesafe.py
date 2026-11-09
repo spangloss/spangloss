@@ -11,9 +11,11 @@ also reports the model that gave it, which may differ from the name asked for:
 when every answer names one model other than that name, that is the version.
 """
 
+import ipaddress
 import logging
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from typesafe_sdk import (
     Choice,
@@ -139,7 +141,7 @@ class TypeSafeBackend:
 
 
 class JevBackend(TypeSafeBackend):
-    """Hosted: refuses calls that could carry secrets off the machine. Calls from a
+    """Hosted (Jev, or a Kev server off this machine): refuses calls that could carry secrets off the machine. Calls from a
     verified scenario run are screened only for secrets outside the fakes list."""
 
     def __init__(
@@ -181,6 +183,37 @@ def kev_backend(base_url: str = KEV_URL, model: str = KEV_MODEL) -> TypeSafeBack
         unreachable=f"Kev not reachable at {base_url} (start a Kev server; see README)"
         " or use --backend jev",
     )
+
+
+def remote_kev_backend(
+    base_url: str, name: str, key: str | None, model: str = KEV_MODEL
+) -> TypeSafeBackend:
+    """A Kev server other than the local default, such as one on Modal, labeled
+    under its own name so its sec.model never collides with the local Kev's.
+
+    A server off this machine gets the hosted screen, as Jev does: evidence sent
+    there leaves the machine."""
+    client = TypeSafeClient(
+        api_key=key or "local",  # pragma: allowlist secret
+        base_url=base_url,
+        model=model,
+        timeout=TIMEOUT_SECONDS,
+        compression=False,
+    )
+    unreachable = f"Kev not reachable at {base_url} (is the server up?)"
+    if is_loopback(base_url):
+        return TypeSafeBackend(name, model, client, unreachable=unreachable)
+    return JevBackend(name, model, client, unreachable=unreachable)
+
+
+def is_loopback(url: str) -> bool:
+    host = urlsplit(url).hostname or ""
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:  # a name, not an address
+        return False
 
 
 def jev_backend(env_file: Path = Path(".env"), model: str = JEV_MODEL) -> JevBackend:

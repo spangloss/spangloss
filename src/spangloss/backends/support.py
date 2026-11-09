@@ -10,7 +10,9 @@ Principle 2), so detection rules must treat it like a label that wasn't asked.
   control, with no threshold that separates its answers
   (docs/findings/known-limitations.md).
 
-Keyed by backend name, the part of sec.model before the "/".
+Keyed by backend name, the part of sec.model before the "/". A Kev server labeled
+under its own name (spangloss label --kev-url URL --name NAME) has no entry here,
+so it is asked every label; the CLI keeps its labels out of the default store.
 """
 
 BACKENDS = ("kev", "jev")  # the backends `spangloss label --backend` offers
