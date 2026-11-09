@@ -1,0 +1,90 @@
+{
+ "split": "v1",
+ "spans": "v1.txt: <side> <sha256 of the span ID, hex>",
+ "taxonomy": "0.4.0",
+ "rule": "spangloss.eval.split",
+ "counts": {
+  "test": {
+   "calls": 79,
+   "shapes": 27,
+   "labels": {
+    "sec.data_class": {
+     "none": 71,
+     "secrets": 1
+    },
+    "sec.effect": {
+     "delete": 1,
+     "none": 12,
+     "read": 63,
+     "write": 3
+    },
+    "sec.injection": {
+     "no": 51,
+     "yes": 11
+    },
+    "sec.intent": {
+     "delegate": 1,
+     "explore": 15,
+     "modify": 4,
+     "other": 8,
+     "retrieve": 44
+    },
+    "sec.reversibility": {
+     "irreversible": 3,
+     "recoverable": 1,
+     "reversible": 68
+    },
+    "sec.trifecta.private_source": {
+     "no": 39,
+     "yes": 40
+    },
+    "sec.trifecta.sink": {
+     "no": 72,
+     "yes": 7
+    },
+    "sec.trifecta.untrusted_source": {
+     "no": 44,
+     "yes": 35
+    }
+   }
+  },
+  "train": {
+   "calls": 52,
+   "shapes": 28,
+   "labels": {
+    "sec.data_class": {
+     "none": 48,
+     "secrets": 4
+    },
+    "sec.effect": {
+     "none": 7,
+     "read": 45
+    },
+    "sec.injection": {
+     "no": 20
+    },
+    "sec.intent": {
+     "delegate": 3,
+     "explore": 26,
+     "other": 4,
+     "retrieve": 19
+    },
+    "sec.reversibility": {
+     "reversible": 52
+    },
+    "sec.trifecta.private_source": {
+     "no": 13,
+     "yes": 39
+    },
+    "sec.trifecta.sink": {
+     "no": 46,
+     "yes": 6
+    },
+    "sec.trifecta.untrusted_source": {
+     "no": 42,
+     "yes": 10
+    }
+   }
+  }
+ }
+}
