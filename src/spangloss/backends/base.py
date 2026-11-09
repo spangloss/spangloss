@@ -25,6 +25,16 @@ class AskResult:
     input_tokens: int | None  # as the backend reports it; None if it doesn't
 
 
+@dataclass(frozen=True, slots=True)
+class ModelInfo:
+    """What a backend's server says about the model behind its model name, at one
+    moment of a labeling run."""
+
+    checkpoint: str | None  # the weights, when the server names them; else None
+    card: dict[str, Any] | None  # the server's /v1/models entry, as it sent it
+    served: tuple[str, ...]  # model names the answers so far reported, first seen first
+
+
 class RequestRejected(Exception):
     """The backend refused this request. The call is skipped; the run continues."""
 
@@ -50,4 +60,9 @@ class Backend(Protocol):
         self, evidence: dict[str, Any], questions: dict[str, QuestionSpec]
     ) -> AskResult:
         """Answer all questions about one piece of evidence in a single request."""
+        ...
+
+    def describe(self) -> ModelInfo:
+        """The model behind this backend right now, for the run log. Raises
+        BackendUnavailable when the server can't be reached."""
         ...

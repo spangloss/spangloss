@@ -3,6 +3,12 @@
 Both speak TypeSafe's System One API. The evidence goes in `state`; the card's
 question and notes go in each question's `instructions`, and its answer
 definitions in `criteria`. The two never mix.
+
+For the run log, `describe` reads the server's /v1/models entry for the model
+name. A Kev server names the checkpoint it serves in that entry's `run`; Jev's
+entry carries only a name, description and release date. Each System One answer
+also reports the model that gave it, which may differ from the name asked for:
+when every answer names one model other than that name, that is the version.
 """
 
 import logging
@@ -13,6 +19,7 @@ from typesafe_sdk import (
     Choice,
     Noul,
     TypeSafeAPIConnectionError,
+    TypeSafeAPIError,
     TypeSafeAPITimeoutError,
     TypeSafeBadRequestError,
     TypeSafeClient,
@@ -25,6 +32,7 @@ from spangloss.backends.base import (
     BackendUnavailable,
     Distribution,
     EvidenceTooLong,
+    ModelInfo,
     QuestionSpec,
     RequestRejected,
 )
@@ -42,6 +50,7 @@ TIMEOUT_SECONDS = 120.0  # long evidence on a laptop GPU can take tens of second
 
 # Request and response bodies are logged at debug level by the SDK; keep them out.
 logging.getLogger("typesafe_sdk").setLevel(logging.WARNING)
+log = logging.getLogger(__name__)
 
 
 class TypeSafeBackend:
@@ -54,6 +63,7 @@ class TypeSafeBackend:
         self._client = client
         # What to tell the user when the server can't be reached at all.
         self._unreachable = unreachable or f"{name} not reachable"
+        self._served: dict[str, None] = {}  # model names answers reported, in order
 
     def screen(self, call: ParsedToolCall) -> str | None:
         return None
@@ -77,6 +87,7 @@ class TypeSafeBackend:
             raise EvidenceTooLong(f"{self.name} rejected the request (422)") from e
         except TypeSafeBadRequestError as e:
             raise RequestRejected(f"{self.name} rejected the request (400)") from e
+        self._served[response.model] = None
         answers: dict[str, Distribution] = {}
         for qid, q in questions.items():
             answer = response.answers[qid]
@@ -87,6 +98,41 @@ class TypeSafeBackend:
                 answers[qid] = dict(answer.probabilities)  # type: ignore[union-attr]
         usage = getattr(response, "usage", None)
         return AskResult(answers, getattr(usage, "input_tokens", None))
+
+    def describe(self) -> ModelInfo:
+        card = self._card()
+        served = tuple(self._served)
+        run = card.get("run") if card else None
+        if isinstance(run, str) and run:
+            checkpoint: str | None = run
+        elif len(served) == 1 and served[0] != self._model_name:
+            checkpoint = served[0]
+        else:
+            checkpoint = None
+        return ModelInfo(checkpoint, card, served)
+
+    def _card(self) -> dict[str, Any] | None:
+        """The server's /v1/models entry for our model name, read from the raw body:
+        the SDK's parsed list keeps only name, description and release date."""
+        try:
+            listed = self._client.models.list()
+        except TypeSafeAPITimeoutError:
+            raise
+        except TypeSafeAPIConnectionError as e:
+            raise BackendUnavailable(self._unreachable) from e
+        except TypeSafeAPIError as e:
+            # Error text is not passed on: it may quote the request.
+            log.warning(
+                "%s: model list unavailable (%s); run recorded without it",
+                self.name,
+                type(e).__name__,
+            )
+            return None
+        body = listed.raw_http_response.json()
+        for entry in body.get("models", []) if isinstance(body, dict) else []:
+            if isinstance(entry, dict) and entry.get("name") == self._model_name:
+                return entry
+        return None
 
     def close(self) -> None:
         self._client.close()

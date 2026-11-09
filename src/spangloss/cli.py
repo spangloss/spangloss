@@ -9,7 +9,7 @@ from pathlib import Path
 
 from spangloss import __version__
 from spangloss.backends import Backend
-from spangloss.backends.base import BackendUnavailable
+from spangloss.backends.base import BackendUnavailable, ModelInfo
 from spangloss.backends.support import BACKENDS
 from spangloss.config import DEFAULT_CONFIG, ConfigError, load_config
 from spangloss.eval import (
@@ -28,6 +28,7 @@ from spangloss.questions import label_call, load_cards
 from spangloss.questions.runner import DEFAULT_MAX_EVIDENCE_CHARS, derived_labels
 from spangloss.rules import RULES
 from spangloss.store import DEFAULT_DB, LabelStore
+from spangloss.store.labels import Provenance
 
 DEFAULT_OUTPUT = Path("data/parsed/tool_calls.jsonl")
 SCENARIO_GOLD = Path("data/scenarios/gold.jsonl")
@@ -283,6 +284,9 @@ def _import_sheet(sheet: Path, calls: Path, gold: Path) -> int:
 def _score(db: Path, gold_path: Path, calls_path: Path) -> int:
     from spangloss.eval.shapes import call_shape
 
+    if not db.exists():
+        print(f"error: {db} not found; run spangloss label first", file=sys.stderr)
+        return 1
     gold = read_gold(gold_path)
     if not gold:
         print(f"error: no gold labels in {gold_path}", file=sys.stderr)
@@ -299,10 +303,46 @@ def _score(db: Path, gold_path: Path, calls_path: Path) -> int:
             " own shape",
             file=sys.stderr,
         )
-    with LabelStore(db) as store:
+    # Read-only, so scoring never migrates or otherwise rewrites a store.
+    with LabelStore(db, read_only=True) as store:
         stored = store.stored_labels()
+        provenance = store.provenance()
+    for line in _provenance_lines(provenance):
+        print(line)
     print(format_report(score(gold, stored, load_cards(), shapes), len(gold)))
     return 0
+
+
+def _checkpoint(info: ModelInfo) -> str:
+    return (
+        f"checkpoint {info.checkpoint}"
+        if info.checkpoint
+        else "checkpoint not named by the server"
+    )
+
+
+def _provenance_lines(provenance: list[Provenance]) -> list[str]:
+    """Which checkpoint each model's labels came from, as the store's run log says."""
+    lines = ["Provenance (from the store's run log):"]
+    for p in provenance:
+        parts = [
+            f"{n} from {checkpoint or 'a checkpoint the server did not name'}"
+            for checkpoint, n in p.by_checkpoint.items()
+        ]
+        if p.unrecorded:
+            parts.append(f"{p.unrecorded} from before runs were recorded")
+        line = f"  {p.model}: label rows: {'; '.join(parts)}"
+        if p.changed:
+            line += f" ({p.changed} from runs whose checkpoint changed mid-run)"
+        if p.unfinished:
+            line += f" ({p.unfinished} from runs that stopped early)"
+        lines.append(line)
+        if p.mixed:
+            lines.append(
+                f"  warning: {p.model} labels can't be pinned to one checkpoint;"
+                " the scores below pool them"
+            )
+    return lines + [""]
 
 
 def _scenarios(args: argparse.Namespace) -> int:
@@ -533,6 +573,9 @@ def _label(
         written = 0
         skipped = 0
         unsupported: Counter[str] = Counter()
+        # A run that asks nothing isn't logged, and doesn't contact the server.
+        start = backend.describe() if todo else None
+        run_id = store.start_run(backend.model, start, __version__) if start else None
         for call in todo:
             outcome = label_call(call, cards, backend, max_chars, first_party)
             unsupported.update(outcome.unsupported)
@@ -546,13 +589,25 @@ def _label(
                     outcome.skipped,
                 )
                 continue
-            written += store.write(outcome.labels)
+            written += store.write(outcome.labels, run_id)
+        if start and run_id:
+            end = backend.describe()
+            store.finish_run(run_id, end, len(todo) - skipped, written)
 
     print(
         f"{backend.model}: {len(todo) - skipped} calls labeled, {skipped} skipped,"
         f" {written} labels written to {db}",
         file=sys.stderr,
     )
+    if start and run_id:
+        print(f"{backend.model}: run {run_id}, {_checkpoint(start)}", file=sys.stderr)
+        if end.checkpoint != start.checkpoint:
+            print(
+                f"warning: {backend.model} checkpoint changed during the run, from"
+                f" {start.checkpoint or 'unnamed'} to {end.checkpoint or 'unnamed'};"
+                " the run's labels can't be pinned to one",
+                file=sys.stderr,
+            )
     for label, n in sorted(unsupported.items()):
         print(
             f"{backend.model}: {label} unsupported, not asked on {n} call(s)",

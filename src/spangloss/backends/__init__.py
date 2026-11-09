@@ -5,6 +5,7 @@ from spangloss.backends.base import (
     Backend,
     Distribution,
     EvidenceTooLong,
+    ModelInfo,
     QuestionSpec,
     RequestRejected,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "Backend",
     "Distribution",
     "EvidenceTooLong",
+    "ModelInfo",
     "QuestionSpec",
     "RequestRejected",
 ]

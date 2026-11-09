@@ -113,6 +113,13 @@ class _Unreachable:
     def system_one(self, **_: Any) -> Any:
         raise self.error
 
+    @property
+    def models(self) -> Any:
+        return self
+
+    def list(self) -> Any:
+        raise self.error
+
     def close(self) -> None:
         pass
 

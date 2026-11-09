@@ -15,6 +15,7 @@ from spangloss.backends import (
     AskResult,
     Distribution,
     EvidenceTooLong,
+    ModelInfo,
     QuestionSpec,
     RequestRejected,
 )
@@ -76,9 +77,14 @@ class FakeBackend:
         self.respond = respond
         self.requests: list[tuple[dict[str, Any], dict[str, QuestionSpec]]] = []
         self.refuse_over: int | None = None  # simulate a 422 above this many chars
+        # What describe() returns, in turn; the last one repeats.
+        self.infos = [ModelInfo("fake/ckpt-1", {"name": "test"}, ())]
 
     def screen(self, call: ParsedToolCall) -> str | None:
         return None
+
+    def describe(self) -> ModelInfo:
+        return self.infos.pop(0) if len(self.infos) > 1 else self.infos[0]
 
     def ask(
         self, evidence: dict[str, Any], questions: dict[str, QuestionSpec]
@@ -714,6 +720,7 @@ class _Client:
         if self.fail:
             raise self.fail.__new__(self.fail)
         return _Answer(
+            model=model,
             answers={
                 "sink": _Answer(noul=0.25),
                 "effect": _Answer(probabilities={"read": 0.9, "write": 0.1}),
