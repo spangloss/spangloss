@@ -26,7 +26,9 @@ def verified_run(run_dir: Path, root: Path = SCENARIOS_DIR) -> list[str] | None:
     """The run's span ids if it verifies, else None."""
     try:
         run = json.loads((run_dir / "run.json").read_text())
-        scenario = load_scenario(run["scenario"], root=root)
+        scenario = load_scenario(
+            run["scenario"], root=root, fixture_set=run.get("fixture_set")
+        )
         lines = (run_dir / "tool_calls.jsonl").read_text().splitlines()
     except (OSError, KeyError, ValueError, ScenarioError):
         return None

@@ -162,6 +162,22 @@ def main(argv: list[str] | None = None) -> int:
     scen_run.add_argument(
         "--keep", action="store_true", help="keep the run's Docker volumes"
     )
+    scen_run.add_argument(
+        "--set",
+        action="append",
+        dest="sets",
+        metavar="ID",
+        help="run this fixture set (repeatable); a scenario with sets needs --set"
+        " or --all-sets",
+    )
+    scen_run.add_argument(
+        "--all-sets", action="store_true", help="run every fixture set, in order"
+    )
+    scen_run.add_argument(
+        "--stop-after-usd",
+        type=float,
+        help="start no further run once the runs so far cost this much",
+    )
     scen_check = scen_actions.add_parser(
         "check", help="Match runs to their expectations; write gold and review sheets."
     )
@@ -445,14 +461,19 @@ def _scenarios(args: argparse.Namespace) -> int:
         if args.scenarios_command == "list":
             for name in scenario_names():
                 s = load_scenario(name)
-                print(f"{name}  v{s.version}  taxonomy {s.taxonomy}  {s.description}")
+                sets = f"  {len(s.fixture_sets)} sets" if s.fixture_sets else ""
+                print(
+                    f"{name}  v{s.version}  taxonomy {s.taxonomy}{sets}"
+                    f"  {s.description}"
+                )
             return 0
         if args.scenarios_command == "verify-fakes":
             return _verify_fakes(args.paths)
         if args.scenarios_command == "run":
-            return _scenario_run(
-                load_scenario(args.name), args.prompt, args.runs, args.keep
-            )
+            scenario = load_scenario(args.name)
+            if scenario.fixture_sets or args.sets or args.all_sets:
+                return _scenario_run_sets(scenario, args)
+            return _scenario_run(scenario, args.prompt, args.runs, args.keep)
         return _scenario_check(args.run_ids, args.gold)
     except ScenarioError as e:
         print(f"error: {e}", file=sys.stderr)
@@ -496,6 +517,56 @@ def _scenario_run(scenario, prompt_id: str | None, runs: int | None, keep: bool)
     return 0
 
 
+def _scenario_run_sets(scenario, args: argparse.Namespace) -> int:
+    """Run fixture sets: each set runs its own prompt, the scenario's runs times."""
+    from spangloss.scenarios import load_scenario
+    from spangloss.scenarios.runner import RunnerError, run_scenario
+
+    if not scenario.fixture_sets:
+        print(f"error: {scenario.name} has no fixture sets", file=sys.stderr)
+        return 1
+    if args.prompt:
+        print("error: a fixture set decides its prompt; drop --prompt", file=sys.stderr)
+        return 1
+    if bool(args.sets) == args.all_sets:
+        print("error: give --set ID (repeatable) or --all-sets", file=sys.stderr)
+        return 1
+    if scenario.taxonomy != load_cards()[0].taxonomy:
+        print(
+            f"error: {scenario.name} is written for taxonomy {scenario.taxonomy},"
+            f" the cards are {load_cards()[0].taxonomy}",
+            file=sys.stderr,
+        )
+        return 1
+    ids = [s.id for s in scenario.fixture_sets] if args.all_sets else args.sets
+    resolved = [load_scenario(scenario.name, fixture_set=i) for i in ids]
+    spent = 0.0
+    for s in resolved:
+        for _ in range(args.runs or s.runs):
+            if args.stop_after_usd is not None and spent >= args.stop_after_usd:
+                print(
+                    f"stopped: ${spent:.4f} spent, at or past --stop-after-usd"
+                    f" {args.stop_after_usd}",
+                    file=sys.stderr,
+                )
+                return 2
+            try:
+                run_dir = run_scenario(s, s.prompts[0].id, keep=args.keep)
+            except RunnerError as e:
+                print(f"error: {e}", file=sys.stderr)
+                return 1
+            run = json.loads((run_dir / "run.json").read_text())
+            cost = (run.get("result") or {}).get("total_cost_usd") or 0.0
+            spent += cost
+            print(
+                f"{s.name} [{s.active_set.id} {s.prompts[0].id}]: ${cost:.4f}"
+                f" (total ${spent:.4f}), canary {run.get('canary')},"
+                f" run written to {run_dir}",
+                file=sys.stderr,
+            )
+    return 0
+
+
 def _scenario_check(run_ids: list[str], gold_path: Path) -> int:
     from spangloss.scenarios import check_run, load_scenario
     from spangloss.scenarios.runner import RUNS_DIR
@@ -516,7 +587,7 @@ def _scenario_check(run_ids: list[str], gold_path: Path) -> int:
     failed = 0
     for run_dir in run_dirs:
         run = json.loads((run_dir / "run.json").read_text())
-        scenario = load_scenario(run["scenario"])
+        scenario = load_scenario(run["scenario"], fixture_set=run.get("fixture_set"))
         if run.get("version") != scenario.version:
             # A run of an older scenario version is stale: its gold is dropped and
             # it neither passes nor fails.

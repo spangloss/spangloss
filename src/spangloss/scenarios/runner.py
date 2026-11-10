@@ -9,13 +9,18 @@ docs/scenarios-design.md, sections 3 and 4. Per run:
 - a key proxy (nginx) that alone holds the dedicated API key, read from
   ~/.config/spangloss/scenarios.env; the agent's container gets a placeholder key;
 - a Collector writing the run's traces and logs to its own volume;
-- for scenarios with a site, a local HTTPS stand-in for the fixtures site;
+- for scenarios with a site, a local stand-in for the fixtures site (HTTPS by
+  default, or plain HTTP for a site_tls: false service such as a status API);
 - the agent container, running `claude -p` with the scenario's flags.
 
 Everything is removed afterwards unless keep is set. Only the traces, logs, the
 stream-json transcript and run.json are copied out, to data/scenarios/runs/<run_id>/.
+
+A fixture-set run lays the set's overlay over the base fixtures and site, and
+run.json records the set, its split side and whether the canary file was written.
 """
 
+import hashlib
 import io
 import json
 import re
@@ -36,6 +41,9 @@ from spangloss.scenarios.spec import SCENARIOS_DIR, Prompt, Scenario
 
 CLAUDE_CODE_VERSION = "2.1.312"
 AGENT_IMAGE = f"spangloss-scenarios:{CLAUDE_CODE_VERSION}"
+# The base image plus Node.js and npm, for scenarios that run npm scripts.
+NODE_IMAGE = f"spangloss-scenarios-node:{CLAUDE_CODE_VERSION}"
+IMAGES = {"base": AGENT_IMAGE, "node": NODE_IMAGE}
 COLLECTOR_IMAGE = "otel/opentelemetry-collector-contrib:0.162.0"
 PROXY_IMAGE = "nginx:1.27-alpine"
 HELPER_IMAGE = "alpine:3.20"
@@ -44,10 +52,10 @@ KEY_FILE = Path.home() / ".config" / "spangloss" / "scenarios.env"
 KEY_VARIABLE = "ANTHROPIC_API_KEY"
 PLACEHOLDER_KEY = "placeholder-the-proxy-adds-the-real-key"
 PROXY_HOST = "anthropic-proxy"
-PAGES_HOST = "docs.tinyfmt.example"
 RUNS_DIR = Path("data/scenarios/runs")
 MCP_CONFIG = "/scenario-cfg/mcp.json"
 CANARY_FILE = "spangloss-canary.txt"
+CANARY_WRITTEN = "spangloss-canary-file-exists"
 # Before the session, the runner checks from the agent image that the internet is
 # unreachable and that the proxy refuses a path it doesn't allow (section 4).
 NETWORK_PROBE_PATH = "/spangloss-network-check"
@@ -201,7 +209,7 @@ def agent_env(scenario: Scenario, run_id: str) -> dict[str, str]:
         ),
         "CLAUDE_CODE_OTEL_SHUTDOWN_TIMEOUT_MS": "10000",
     }
-    if scenario.site is not None:
+    if scenario.site is not None and scenario.site_tls:
         env["NODE_EXTRA_CA_CERTS"] = "/scenario-cfg/tls/cert.pem"
         env["SSL_CERT_FILE"] = "/scenario-cfg/tls/bundle.pem"
     return env
@@ -236,7 +244,9 @@ def proxy_argv(names: Names, key_file: Path) -> list[str]:
     ]
 
 
-def agent_run_argv(names: Names, env: dict[str, str], argv: list[str]) -> list[str]:
+def agent_run_argv(
+    names: Names, env: dict[str, str], argv: list[str], image: str = AGENT_IMAGE
+) -> list[str]:
     cmd = [
         "run",
         "--rm",
@@ -251,7 +261,7 @@ def agent_run_argv(names: Names, env: dict[str, str], argv: list[str]) -> list[s
     ]
     for key, value in env.items():
         cmd += ["-e", f"{key}={value}"]
-    return [*cmd, AGENT_IMAGE, *argv]
+    return [*cmd, image, *argv]
 
 
 @dataclass(slots=True)
@@ -272,15 +282,21 @@ class Docker:
         return result
 
 
-def ensure_image(docker: Docker) -> None:
-    if docker("image", "inspect", AGENT_IMAGE, check=False).returncode == 0:
+def ensure_image(docker: Docker, image: str = AGENT_IMAGE) -> None:
+    """Build the image if it's missing; the Node image builds on the base one."""
+    if docker("image", "inspect", image, check=False).returncode == 0:
         return
+    if image == NODE_IMAGE:
+        ensure_image(docker, AGENT_IMAGE)
+    dockerfile = "Dockerfile.node" if image == NODE_IMAGE else "Dockerfile"
     docker(
         "build",
         "--build-arg",
         f"CLAUDE_CODE_VERSION={CLAUDE_CODE_VERSION}",
+        "-f",
+        str(SCENARIOS_DIR / dockerfile),
         "-t",
-        AGENT_IMAGE,
+        image,
         str(SCENARIOS_DIR),
     )
 
@@ -304,7 +320,8 @@ def run_scenario(
     session_id = str(uuid.uuid4())
     run_dir = runs_dir / run_id
     (run_dir / "raw").mkdir(parents=True)
-    ensure_image(docker)
+    image = IMAGES[scenario.image]
+    ensure_image(docker, image)
 
     started: list[str] = []
     volumes = [names.workspace, names.home, names.otel, names.cfg]
@@ -313,10 +330,10 @@ def run_scenario(
         docker("network", "create", names.egress)
         for v in volumes:
             docker("volume", "create", v)
-        _fill_cfg(docker, names, scenario)
+        site_files = _fill_cfg(docker, names, scenario)
         _fill_fixtures(docker, names, scenario)
-        _setup(docker, names, scenario)
-        pre = _listing(docker, names)
+        _setup(docker, names, scenario, image)
+        pre = _listing(docker, names, image)
 
         docker(*proxy_argv(names, key_file))
         started.append(names.proxy)
@@ -329,7 +346,7 @@ def run_scenario(
         )  # fmt: skip
         started.append(names.collector)
         if scenario.site is not None:
-            docker(*_pages_argv(names))
+            docker(*_pages_argv(names, scenario))
             started.append(names.pages)
         time.sleep(3)  # let the Collector, proxy and pages listen
         network_check = _network_check(docker, names)
@@ -338,7 +355,8 @@ def run_scenario(
 
         argv = claude_argv(scenario, session_id, prompt)
         result = docker(
-            *agent_run_argv(names, agent_env(scenario, run_id), argv), check=False
+            *agent_run_argv(names, agent_env(scenario, run_id), argv, image),
+            check=False,
         )
         (run_dir / "stream.jsonl").write_bytes(result.stdout)
         (run_dir / "agent.stderr").write_bytes(result.stderr[-20_000:])
@@ -353,7 +371,7 @@ def run_scenario(
         denied = docker("logs", names.proxy, check=False).stdout.decode(
             errors="replace"
         )
-        post = _listing(docker, names)
+        post = _listing(docker, names, image)
         canary = _canary_file(docker, names, scenario)
     finally:
         for name in started:
@@ -387,6 +405,12 @@ def run_scenario(
         "canary": canary,
         "publishable": scenario.publishable,
     }
+    if scenario.active_set is not None:
+        record["fixture_set"] = scenario.active_set.id
+        record["fixture_set_split"] = scenario.active_set.split
+        record["canary_token"] = scenario.canary_token
+    if site_files:
+        record["site_files"] = site_files
     (run_dir / "run.json").write_text(json.dumps(record, indent=2) + "\n")
     calls = parse_claude_code(
         run_dir / "raw" / "traces.jsonl", run_dir / "raw" / "logs.jsonl"
@@ -427,7 +451,8 @@ def _untar_into(docker: Docker, volume: str, files: dict[str, bytes]) -> None:
     )  # fmt: skip
 
 
-def _fill_cfg(docker: Docker, names: Names, scenario: Scenario) -> None:
+def _fill_cfg(docker: Docker, names: Names, scenario: Scenario) -> dict[str, str]:
+    """Fill the config volume; returns the served site files' sha256 by path."""
     files = {
         "collector.yaml": (INFRA / "collector.yaml").read_bytes(),
         "settings.json": (INFRA / "settings.json").read_bytes(),
@@ -435,18 +460,21 @@ def _fill_cfg(docker: Docker, names: Names, scenario: Scenario) -> None:
     }
     if scenario.site is not None:
         files |= _tree(scenario.site, "site/")
+        if scenario.overlay is not None:
+            files |= _tree(scenario.overlay / "site", "site/")
     for name, server in scenario.mcp_servers.items():
         files[f"mcp/{name}.py"] = server.script.read_bytes()
     if scenario.mcp_servers:
         files["mcp.json"] = json.dumps(mcp_config(scenario), indent=2).encode()
     _untar_into(docker, names.cfg, files)
-    if scenario.site is not None:
+    if scenario.site is not None and scenario.site_tls:
         # A throwaway certificate for the local pages stand-in, valid for two days.
+        host = scenario.site_host
         docker(
             "run", "--rm", "-v", f"{names.cfg}:/c", HELPER_IMAGE, "sh", "-c",
             "apk add -q openssl >/dev/null && mkdir -p /c/tls && openssl req -x509"
             " -newkey rsa:2048 -nodes -days 2"
-            f" -subj /CN={PAGES_HOST} -addext subjectAltName=DNS:{PAGES_HOST}"
+            f" -subj /CN={host} -addext subjectAltName=DNS:{host}"
             " -keyout /c/tls/key.pem -out /c/tls/cert.pem 2>/dev/null"
             " && chmod 644 /c/tls/cert.pem",
         )  # fmt: skip
@@ -455,45 +483,65 @@ def _fill_cfg(docker: Docker, names: Names, scenario: Scenario) -> None:
             "sh", "-c",
             "cat /etc/ssl/certs/ca-certificates.crt /c/tls/cert.pem > /c/tls/bundle.pem",
         )  # fmt: skip
+    return {
+        name.removeprefix("site/"): hashlib.sha256(data).hexdigest()
+        for name, data in sorted(files.items())
+        if name.startswith("site/")
+    }
 
 
 def _fill_fixtures(docker: Docker, names: Names, scenario: Scenario) -> None:
-    _untar_into(docker, names.workspace, _tree(scenario.workspace_fixtures))
-    _untar_into(docker, names.home, _tree(scenario.home_fixtures))
+    """Base fixtures, then the active set's overlay on top."""
+    workspace = _tree(scenario.workspace_fixtures)
+    home = _tree(scenario.home_fixtures)
+    if scenario.overlay is not None:
+        workspace |= _tree(scenario.overlay / "workspace")
+        home |= _tree(scenario.overlay / "home")
+    _untar_into(docker, names.workspace, workspace)
+    _untar_into(docker, names.home, home)
 
 
-def _setup(docker: Docker, names: Names, scenario: Scenario) -> None:
+def _setup(
+    docker: Docker, names: Names, scenario: Scenario, image: str = AGENT_IMAGE
+) -> None:
     """Setup steps run with no network and no telemetry, so they leave no spans."""
     for step in scenario.setup:
         docker(
             "run", "--rm", "--network", "none",
             "-v", f"{names.workspace}:/workspace", "-v", f"{names.home}:/home/agent",
             "-e", "HOME=/home/agent", "-e", "GIT_CONFIG_NOSYSTEM=1",
-            AGENT_IMAGE, "bash", "-c", step,
+            image, "bash", "-c", step,
         )  # fmt: skip
 
 
-def _listing(docker: Docker, names: Names) -> dict[str, Any]:
+def _listing(docker: Docker, names: Names, image: str = AGENT_IMAGE) -> dict[str, Any]:
     out = docker(
         "run", "--rm", "--network", "none",
         "-v", f"{names.workspace}:/workspace:ro", "-v", f"{names.home}:/home/agent:ro",
-        AGENT_IMAGE, "python3", "-c", LISTING_SCRIPT,
+        image, "python3", "-c", LISTING_SCRIPT,
     )  # fmt: skip
     return json.loads(out.stdout or b"{}")
 
 
-def _pages_argv(names: Names) -> list[str]:
-    server = (
-        "import http.server,ssl,functools;"
-        "h=functools.partial(http.server.SimpleHTTPRequestHandler,directory='/c/site');"
-        "s=http.server.ThreadingHTTPServer(('0.0.0.0',443),h);"
-        "c=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);"
-        "c.load_cert_chain('/c/tls/cert.pem','/c/tls/key.pem');"
-        "s.socket=c.wrap_socket(s.socket,server_side=True);s.serve_forever()"
-    )
+def _pages_argv(names: Names, scenario: Scenario) -> list[str]:
+    if scenario.site_tls:
+        server = (
+            "import http.server,ssl,functools;"
+            "h=functools.partial(http.server.SimpleHTTPRequestHandler,directory='/c/site');"
+            "s=http.server.ThreadingHTTPServer(('0.0.0.0',443),h);"
+            "c=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);"
+            "c.load_cert_chain('/c/tls/cert.pem','/c/tls/key.pem');"
+            "s.socket=c.wrap_socket(s.socket,server_side=True);s.serve_forever()"
+        )
+    else:
+        server = (
+            "import http.server,functools;"
+            "h=functools.partial(http.server.SimpleHTTPRequestHandler,directory='/c/site');"
+            "http.server.ThreadingHTTPServer(('0.0.0.0',80),h).serve_forever()"
+        )
     return [
         "run", "-d", "--name", names.pages, "--network", names.network,
-        "--network-alias", PAGES_HOST, "--user", "0",
+        "--network-alias", scenario.site_host, "--user", "0",
         "-v", f"{names.cfg}:/c:ro", AGENT_IMAGE, "python3", "-c", server,
     ]  # fmt: skip
 
@@ -510,14 +558,20 @@ def _network_check(docker: Docker, names: Names) -> dict[str, str]:
 
 
 def _canary_file(docker: Docker, names: Names, scenario: Scenario) -> dict[str, Any]:
-    if not scenario.canary_token:
+    """Whether the canary file was written, and with the token: data, not a label."""
+    if not scenario.canary_token and scenario.active_set is None:
         return {}
     out = docker(
         "run", "--rm", "--network", "none", "-v", f"{names.workspace}:/w:ro",
-        HELPER_IMAGE, "sh", "-c", f"cat /w/{CANARY_FILE} 2>/dev/null || true",
+        HELPER_IMAGE, "sh", "-c",
+        f"test -f /w/{CANARY_FILE} && echo {CANARY_WRITTEN} && cat /w/{CANARY_FILE}"
+        " || true",
     )  # fmt: skip
     text = out.stdout.decode(errors="replace")
-    return {"file_present": scenario.canary_token in text}
+    record: dict[str, Any] = {"file_written": text.startswith(CANARY_WRITTEN)}
+    if scenario.canary_token:
+        record["file_present"] = scenario.canary_token in text
+    return record
 
 
 def _read_stream(path: Path) -> dict[str, Any]:

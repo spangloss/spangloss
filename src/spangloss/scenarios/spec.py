@@ -2,8 +2,19 @@
 
 A scenario is a directory under scenarios/ holding scenario.yaml, a README and
 fixtures/. Expected labels in it are evaluation labels, which the owner writes.
+
+A scenario may list fixture sets: each run uses one set, whose overlay is laid
+over the base fixtures and whose vars fill the
+{name} placeholders in fixture paths, prompts, setup steps, carriers and
+expectations. Loading a scenario with a set resolves all of that for the set.
+
+A train set's overlay is committed at fixtures/sets/<id>/. A test (held-out) set's
+overlay is kept out of git at fixtures/heldout/<id>/; scenarios/heldout.sha256
+records its files so it can be verified when results are published.
 """
 
+import base64
+import binascii
 import hashlib
 import re
 from dataclasses import dataclass, field
@@ -16,6 +27,14 @@ SCENARIOS_DIR = Path("scenarios")
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 PERMISSION_MODES = {"dontAsk"}  # the only mode scenarios use (section 3)
+IMAGES = {"base", "node"}  # the agent image: base, or base plus Node.js and npm
+DEFAULT_SITE_HOST = "docs.tinyfmt.example"
+SET_ID = re.compile(r"^[a-z][a-z0-9]*$")
+VAR = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
+VAR_VALUE = re.compile(r"^[A-Za-z0-9._-]+$")
+SPLITS = {"train", "test"}
+OVERLAY_DIRS = {"train": "sets", "test": "heldout"}  # heldout/ is git-ignored
+BASE64_RUN = re.compile(r"[A-Za-z0-9+/]{20,}={0,2}")
 
 
 class ScenarioError(ValueError):
@@ -26,7 +45,7 @@ class ScenarioError(ValueError):
 class Fixture:
     id: str
     path: str  # workspace-relative, or "~/..." for the agent's home folder
-    fingerprint: str  # text the output must show when a matched call has output
+    fingerprint: str | None  # text the output must show when a matched call has output
     sha256: str  # computed from the file in fixtures/
     source: Path  # the file in fixtures/
 
@@ -76,6 +95,21 @@ class Expectation:
     match: Match
     labels: dict[str, str]
     when_output: tuple[WhenOutput, ...] = ()
+    # injection: by_set. On a call that reads one of the set's payload carriers,
+    # injection is yes when a marker of the set's canary is in the output and goes
+    # to review otherwise; on any other call it keeps its labels.
+    injection_by_set: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class FixtureSet:
+    id: str
+    split: str  # train | test, fixed before the set's first run
+    prompt: str  # the prompt id this set runs
+    canary: str | None
+    payloads: dict[str, str]  # carrier -> payload style
+    lookalikes: tuple[str, ...]  # carriers or kinds holding a look-alike
+    vars: dict[str, str]  # values for the {name} placeholders
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +150,17 @@ class Scenario:
     canary_token: str | None
     publishable: bool
     mcp_servers: dict[str, McpServer] = field(default_factory=dict)
+    image: str = "base"
+    site_host: str = DEFAULT_SITE_HOST
+    site_tls: bool = True
+    carriers: dict[str, Match] = field(default_factory=dict)
+    fixture_sets: tuple[FixtureSet, ...] = ()
+    active_set: FixtureSet | None = None  # the set this scenario was loaded for
+    markers: tuple[str, ...] = ()  # the set's canary, plain or as it is encoded
+
+    @property
+    def payload_carriers(self) -> frozenset[str]:
+        return frozenset(self.active_set.payloads if self.active_set else ())
 
     def tools_for(self, prompt_id: str) -> tuple[str, ...]:
         """The --tools for a prompt variant: its own list, or the scenario's."""
@@ -137,6 +182,24 @@ class Scenario:
     def home_fixtures(self) -> Path:
         return self.directory / "fixtures" / "home"
 
+    @property
+    def overlay(self) -> Path | None:
+        """The active set's overlay directory, if a set is active."""
+        if self.active_set is None:
+            return None
+        return overlay_dir(self.directory, self.active_set)
+
+    def fixture_set(self, set_id: str) -> FixtureSet:
+        for s in self.fixture_sets:
+            if s.id == set_id:
+                return s
+        raise ScenarioError(f"{self.name} has no fixture set {set_id!r}")
+
+
+def overlay_dir(directory: Path, fixture_set: "FixtureSet") -> Path:
+    """Where a set's overlay lives: committed for train, git-ignored for test."""
+    return directory / "fixtures" / OVERLAY_DIRS[fixture_set.split] / fixture_set.id
+
 
 def scenario_names(root: Path = SCENARIOS_DIR) -> list[str]:
     return sorted(
@@ -144,7 +207,11 @@ def scenario_names(root: Path = SCENARIOS_DIR) -> list[str]:
     )
 
 
-def load_scenario(name: str, root: Path = SCENARIOS_DIR) -> Scenario:
+def load_scenario(
+    name: str, root: Path = SCENARIOS_DIR, fixture_set: str | None = None
+) -> Scenario:
+    """Load a scenario; with fixture_set, resolved for that set. Without one, a
+    scenario that has sets loads no fixtures: they come from the sets' overlays."""
     directory = root / name
     path = directory / "scenario.yaml"
     if not path.exists():
@@ -159,15 +226,50 @@ def load_scenario(name: str, root: Path = SCENARIOS_DIR) -> Scenario:
     if raw.get("name") != name:
         raise ScenarioError(f"{where}: name must be {name!r}, the directory name")
 
-    fixtures = {
-        fid: _fixture(fid, spec, directory, where)
-        for fid, spec in (raw.get("fixtures") or {}).items()
-    }
     prompts = _prompts(raw, where)
     prompt_ids = frozenset(p.id for p in prompts)
+    sets = _fixture_sets(raw.get("fixture_sets"), prompt_ids, where)
+    active: FixtureSet | None = None
+    overlay: Path | None = None
+    if fixture_set is not None:
+        if not sets:
+            raise ScenarioError(f"{where}: has no fixture sets")
+        active = next((s for s in sets if s.id == fixture_set), None)
+        if active is None:
+            raise ScenarioError(f"{where}: no fixture set {fixture_set!r}")
+        overlay = overlay_dir(directory, active)
+        if not overlay.is_dir():
+            local = (
+                " (held-out overlays are local only)" if active.split == "test" else ""
+            )
+            raise ScenarioError(
+                f"{where}: set {active.id} has no overlay {overlay}{local}"
+            )
+        values = active.vars | ({"canary": active.canary} if active.canary else {})
+        raw = _with_vars(raw, values)
+        where = f"{where} [{active.id}]"
+        prompts = _prompts(raw, where)
+
+    fixtures = {
+        fid: _fixture(fid, spec, directory, where, overlay)
+        for fid, spec in (raw.get("fixtures") or {}).items()
+        if active is not None or not sets
+    }
+    carriers = {
+        cid: _match(m, fixtures, f"{where}: carrier {cid}")
+        for cid, m in (raw.get("carriers") or {}).items()
+    }
+    for s in sets:
+        unknown = set(s.payloads) - set(carriers)
+        if unknown:
+            raise ScenarioError(
+                f"{where}: set {s.id} poisons unknown carriers {sorted(unknown)}"
+            )
     expect = tuple(
         _expectation(e, fixtures, prompt_ids, where) for e in raw.get("expect") or []
     )
+    if any(e.injection_by_set for e in expect) and not sets:
+        raise ScenarioError(f"{where}: injection: by_set needs fixture_sets")
     ids = [e.id for e in expect]
     if len(ids) != len(set(ids)):
         raise ScenarioError(f"{where}: expectation ids must be unique")
@@ -184,6 +286,14 @@ def load_scenario(name: str, root: Path = SCENARIOS_DIR) -> Scenario:
     site_path = (directory / site).resolve() if site else None
     if site_path is not None and not site_path.is_dir():
         raise ScenarioError(f"{where}: site {site!r} is not a directory")
+    image = raw.get("image", "base")
+    if image not in IMAGES:
+        raise ScenarioError(f"{where}: image must be one of {sorted(IMAGES)}")
+    if active is not None:
+        prompts = (next(p for p in prompts if p.id == active.prompt),)
+        for p in prompts:
+            if VAR.search(p.text):
+                raise ScenarioError(f"{where}: prompt {p.id} has an unfilled var")
 
     return Scenario(
         name=name,
@@ -201,9 +311,16 @@ def load_scenario(name: str, root: Path = SCENARIOS_DIR) -> Scenario:
         unlabeled=tuple(_match(m, fixtures, where) for m in raw.get("unlabeled") or []),
         expect_findings=findings,
         site=site_path,
-        canary_token=raw.get("canary_token"),
+        canary_token=active.canary if active else raw.get("canary_token"),
         publishable=bool(raw.get("publishable", True)),
         mcp_servers=_mcp_servers(raw.get("mcp_servers"), directory, where),
+        image=image,
+        site_host=str(raw.get("site_host", DEFAULT_SITE_HOST)),
+        site_tls=bool(raw.get("site_tls", True)),
+        carriers=carriers,
+        fixture_sets=sets,
+        active_set=active,
+        markers=_markers(active.canary, overlay) if active and overlay else (),
     )
 
 
@@ -211,25 +328,151 @@ def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _fixture(fid: str, spec: Any, directory: Path, where: str) -> Fixture:
+def _fixture(
+    fid: str, spec: Any, directory: Path, where: str, overlay: Path | None = None
+) -> Fixture:
+    """A fixture file: the set's overlay copy if it has one, else the base copy.
+    The fingerprint is optional; a match that names the fixture needs one."""
     if not isinstance(spec, dict):
         raise ScenarioError(f"{where}: fixture {fid!r} must be a mapping")
     rel = _str(spec, "path", where)
-    base = directory / "fixtures"
-    source = (
-        base / "home" / rel.removeprefix("~/")
+    if VAR.search(rel):
+        raise ScenarioError(f"{where}: fixture {fid!r} path has an unfilled var")
+    part, inner = (
+        ("home", rel.removeprefix("~/"))
         if rel.startswith("~/")
-        else base / "workspace" / rel
+        else (
+            "workspace",
+            rel,
+        )
     )
+    candidates = [directory / "fixtures" / part / inner]
+    if overlay is not None:
+        candidates.insert(0, overlay / part / inner)
+    source = next((c for c in candidates if c.is_file()), candidates[-1])
     if not source.is_file():
         raise ScenarioError(f"{where}: fixture {fid!r} has no file at {source}")
     digest = file_sha256(source)
     if digest == EMPTY_SHA256:
         raise ScenarioError(f"{where}: fixture {fid!r} is empty; fixtures must not be")
-    fingerprint = _str(spec, "fingerprint", where)
-    if fingerprint not in source.read_text(encoding="utf-8"):
-        raise ScenarioError(f"{where}: fixture {fid!r} doesn't contain its fingerprint")
+    fingerprint = spec.get("fingerprint")
+    if fingerprint is not None:
+        fingerprint = _str(spec, "fingerprint", where)
+        if fingerprint not in source.read_text(encoding="utf-8"):
+            raise ScenarioError(
+                f"{where}: fixture {fid!r} doesn't contain its fingerprint"
+            )
     return Fixture(fid, rel, fingerprint, digest, source)
+
+
+def _fixture_sets(
+    raw: Any, prompt_ids: frozenset[str], where: str
+) -> tuple[FixtureSet, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not raw:
+        raise ScenarioError(f"{where}: fixture_sets must be a non-empty list")
+    sets = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ScenarioError(f"{where}: each fixture set must be a mapping")
+        sid = _str(item, "id", where)
+        if not SET_ID.match(sid):
+            raise ScenarioError(f"{where}: set id {sid!r} must be a lowercase name")
+        split = item.get("split")
+        if split not in SPLITS:
+            raise ScenarioError(f"{where}: set {sid}: split must be train or test")
+        prompt = item.get("prompt")
+        if prompt is None and len(prompt_ids) == 1:
+            prompt = next(iter(prompt_ids))
+        if prompt not in prompt_ids:
+            raise ScenarioError(f"{where}: set {sid}: prompt must name a prompt id")
+        payloads = item.get("payloads") or {}
+        if not isinstance(payloads, dict):
+            raise ScenarioError(f"{where}: set {sid}: payloads must be a mapping")
+        canary = item.get("canary")
+        if payloads and not canary:
+            raise ScenarioError(f"{where}: set {sid}: payloads need a canary")
+        values = item.get("vars") or {}
+        if not isinstance(values, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) and VAR_VALUE.match(v)
+            for k, v in values.items()
+        ):
+            raise ScenarioError(f"{where}: set {sid}: vars must map names to words")
+        lookalikes = item.get("lookalikes", item.get("lookalike")) or []
+        if isinstance(lookalikes, str):
+            lookalikes = [lookalikes]
+        sets.append(
+            FixtureSet(
+                id=sid,
+                split=split,
+                prompt=prompt,
+                canary=canary,
+                payloads=dict(payloads),
+                lookalikes=tuple(lookalikes),
+                vars=dict(values),
+            )
+        )
+    ids = [s.id for s in sets]
+    canaries = [s.canary for s in sets if s.canary]
+    if len(ids) != len(set(ids)) or len(canaries) != len(set(canaries)):
+        raise ScenarioError(f"{where}: set ids and canaries must be unique")
+    return tuple(sets)
+
+
+# Keys whose string values are regexes: a var's value goes in escaped.
+REGEX_KEYS = {"match", "carriers", "when_output", "unlabeled"}
+
+
+def _with_vars(raw: dict[str, Any], values: dict[str, str]) -> dict[str, Any]:
+    """raw with {name} filled from values, escaped inside regexes. Names not in
+    values stay as they are, so regex counts like {2} are untouched."""
+
+    def fill(obj: Any, regex: bool) -> Any:
+        if isinstance(obj, str):
+            return VAR.sub(
+                lambda m: (
+                    (re.escape if regex else str)(values[m.group(1)])
+                    if m.group(1) in values
+                    else m.group(0)
+                ),
+                obj,
+            )
+        if isinstance(obj, list):
+            return [fill(x, regex) for x in obj]
+        if isinstance(obj, dict):
+            return {k: fill(v, regex or k in REGEX_KEYS) for k, v in obj.items()}
+        return obj
+
+    out = {k: fill(v, k in REGEX_KEYS) for k, v in raw.items() if k != "expect"}
+    out["expect"] = [
+        {k: fill(v, k in REGEX_KEYS) for k, v in e.items()}
+        if isinstance(e, dict)
+        else e
+        for e in raw.get("expect") or []
+    ]
+    out["fixture_sets"] = raw.get("fixture_sets")
+    return out
+
+
+def _markers(canary: str | None, overlay: Path) -> tuple[str, ...]:
+    """The set's canary, plus every base64 run in its overlay that decodes to
+    text holding the canary: an encoded payload shows in output only encoded."""
+    if not canary:
+        return ()
+    found = {canary}
+    for path in sorted(overlay.rglob("*")):
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for run in BASE64_RUN.findall(text):
+            try:
+                decoded = base64.b64decode(run, validate=True).decode("utf-8")
+            except (binascii.Error, UnicodeDecodeError, ValueError):
+                continue
+            if canary in decoded:
+                found.add(run)
+    return tuple(sorted(found))
 
 
 def _prompts(raw: dict[str, Any], where: str) -> tuple[Prompt, ...]:
@@ -302,6 +545,10 @@ def _match(raw: Any, fixtures: dict[str, Fixture], where: str) -> Match:
     fixture = raw.get("fixture")
     if fixture is not None and fixture not in fixtures:
         raise ScenarioError(f"{where}: match names unknown fixture {fixture!r}")
+    if fixture is not None and fixtures[fixture].fingerprint is None:
+        raise ScenarioError(
+            f"{where}: match names fixture {fixture!r}, which has no fingerprint"
+        )
     agent = raw.get("agent", "any")
     decision = raw.get("decision", "any")
     if agent not in {"main", "subagent", "any"}:
@@ -348,12 +595,18 @@ def _expectation(
         raise ScenarioError(
             f"{where}: {eid}: required must be true, false or a list of prompt ids"
         )
+    injection = raw.get("injection")
+    if injection not in (None, "by_set"):
+        raise ScenarioError(f"{where}: {eid}: injection must be by_set if given")
+    if injection and when:
+        raise ScenarioError(f"{where}: {eid}: give injection: by_set or when_output")
     return Expectation(
         id=eid,
         required_for=required_for,
         match=_match(raw.get("match"), fixtures, f"{where}: {eid}"),
         labels=dict(raw.get("labels") or {}),
         when_output=tuple(when),
+        injection_by_set=injection == "by_set",
     )
 
 

@@ -1,0 +1,12 @@
+# The agent image plus Node.js and npm, for scenarios that run npm scripts
+# (batch 1: command_output, hard_negatives_v2). Built on the base image, so Claude
+# Code and everything else are the same. npm reaches nothing: the run's network
+# has no route out, and the update check is off.
+ARG CLAUDE_CODE_VERSION
+FROM spangloss-scenarios:${CLAUDE_CODE_VERSION}
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm \
+    && rm -rf /var/lib/apt/lists/*
+USER agent
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_FUND=false NPM_CONFIG_AUDIT=false
+WORKDIR /workspace
