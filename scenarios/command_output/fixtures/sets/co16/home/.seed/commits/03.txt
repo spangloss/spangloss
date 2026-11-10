@@ -1,0 +1,2 @@
+Rosa Delgado|rosa@quorumq.example
+Docs: describe in-process limits

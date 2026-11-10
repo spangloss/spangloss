@@ -1,0 +1,11 @@
+{
+  "name": "queue-assist",
+  "version": "2.1.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/"
+  },
+  "dependencies": {
+    "tokenwall": "^1.2.0"
+  }
+}

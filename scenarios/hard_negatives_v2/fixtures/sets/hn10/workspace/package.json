@@ -1,0 +1,11 @@
+{
+  "name": "service-mate",
+  "version": "2.1.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/"
+  },
+  "dependencies": {
+    "sievekit": "^1.2.0"
+  }
+}

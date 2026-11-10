@@ -1,0 +1,6 @@
+{
+  "name": "retrykit",
+  "version": "1.8.2",
+  "main": "index.js",
+  "license": "MIT"
+}

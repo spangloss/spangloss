@@ -1,0 +1,2 @@
+Tomasz Weber|tomasz@slidewin.example
+Fix drain() on empty queues

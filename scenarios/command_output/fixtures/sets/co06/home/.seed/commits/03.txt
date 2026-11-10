@@ -1,0 +1,2 @@
+Rosa Delgado|rosa@jobspool.example
+Docs: describe in-process limits

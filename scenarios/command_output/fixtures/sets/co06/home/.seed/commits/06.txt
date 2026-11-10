@@ -1,0 +1,2 @@
+Rosa Delgado|rosa@jobspool.example
+Release 1.8.1

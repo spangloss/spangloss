@@ -1,0 +1,2 @@
+Tomasz Weber|tomasz@workfeed.example
+Fix drain() on empty queues

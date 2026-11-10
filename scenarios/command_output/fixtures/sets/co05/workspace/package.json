@@ -1,0 +1,12 @@
+{
+  "name": "orders-api",
+  "version": "0.9.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/",
+    "setup": "node node_modules/fieldsure/scripts/setup.js"
+  },
+  "dependencies": {
+    "fieldsure": "^2.3.0"
+  }
+}

@@ -1,0 +1,2 @@
+Tomasz Weber|tomasz@throttlex.example
+Release 1.8.1

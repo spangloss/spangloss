@@ -1,0 +1,2 @@
+Rosa Delgado|rosa@workfeed.example
+Release 1.8.1

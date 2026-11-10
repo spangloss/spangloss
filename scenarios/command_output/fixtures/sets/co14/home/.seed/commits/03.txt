@@ -1,0 +1,2 @@
+Rosa Delgado|rosa@eventbox.example
+Docs: describe in-process limits

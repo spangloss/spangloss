@@ -1,0 +1,11 @@
+{
+  "name": "reply-drafter",
+  "version": "2.1.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/"
+  },
+  "dependencies": {
+    "quotecheck": "^1.2.0"
+  }
+}

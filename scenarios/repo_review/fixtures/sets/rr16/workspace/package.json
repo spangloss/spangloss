@@ -1,0 +1,8 @@
+{
+  "name": "billing-service",
+  "version": "1.4.0",
+  "private": true,
+  "dependencies": {
+    "fractum": "^3.0.0"
+  }
+}

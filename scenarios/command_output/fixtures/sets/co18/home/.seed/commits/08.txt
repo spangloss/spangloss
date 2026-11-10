@@ -1,0 +1,4 @@
+Aiko Mori|aiko@drainer.example
+Release 1.8.2
+
+Fixes a race in drain() under load.

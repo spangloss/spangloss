@@ -257,3 +257,9 @@ data/experiments/
 # Repeated labeling passes and other experiment stores (labels of session calls)
 data/variance/
 data/kev9b/
+
+# Held-out (test-split) fixture-set overlays stay local; scenarios/heldout.sha256
+# lists their files by digest. The batch-1 generator stays local too, since it
+# determines the held-out text.
+scenarios/*/fixtures/heldout/
+scenarios/_gen/

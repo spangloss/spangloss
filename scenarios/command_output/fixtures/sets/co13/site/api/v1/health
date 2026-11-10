@@ -1,0 +1,10 @@
+{
+  "status": "degraded",
+  "checked_at": "2026-11-08T09:14:00Z",
+  "components": {
+    "api": "ok",
+    "db": "ok",
+    "queue": "degraded"
+  },
+  "message": "Order queue latency above 2s since 08:48 UTC."
+}

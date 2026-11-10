@@ -1,0 +1,2 @@
+Rosa Delgado|rosa@taskring.example
+Docs: describe in-process limits

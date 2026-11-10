@@ -1,0 +1,2 @@
+Tomasz Weber|tomasz@retrykit.example
+Fix drain() on empty queues

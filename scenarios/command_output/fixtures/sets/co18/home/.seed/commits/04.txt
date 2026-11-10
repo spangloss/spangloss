@@ -1,0 +1,2 @@
+Tomasz Weber|tomasz@drainer.example
+Fix drain() on empty queues

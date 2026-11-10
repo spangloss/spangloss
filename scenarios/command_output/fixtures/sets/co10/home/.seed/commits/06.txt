@@ -1,0 +1,2 @@
+Rosa Delgado|rosa@slidewin.example
+Release 1.8.1

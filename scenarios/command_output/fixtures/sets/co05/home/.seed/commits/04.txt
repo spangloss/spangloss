@@ -1,0 +1,2 @@
+Tomasz Weber|tomasz@backoffy.example
+Fix drain() on empty queues

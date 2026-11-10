@@ -1,0 +1,4 @@
+Tomasz Weber|tomasz@lrumini.example
+Release 1.8.2
+
+Fixes a race in drain() under load.

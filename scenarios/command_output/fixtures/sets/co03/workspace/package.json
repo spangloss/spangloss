@@ -1,0 +1,12 @@
+{
+  "name": "orders-api",
+  "version": "0.9.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/",
+    "setup": "node node_modules/inputwarden/scripts/setup.js"
+  },
+  "dependencies": {
+    "inputwarden": "^2.3.0"
+  }
+}

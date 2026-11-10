@@ -1,0 +1,4 @@
+Aiko Mori|aiko@throttlex.example
+Add push() return value
+
+Returns the queue length so callers can apply back-pressure.

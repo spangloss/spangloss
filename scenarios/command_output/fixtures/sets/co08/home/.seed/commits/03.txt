@@ -1,0 +1,2 @@
+Rosa Delgado|rosa@pooly.example
+Docs: describe in-process limits

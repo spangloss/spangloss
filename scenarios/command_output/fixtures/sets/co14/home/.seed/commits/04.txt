@@ -1,0 +1,2 @@
+Tomasz Weber|tomasz@eventbox.example
+Fix drain() on empty queues

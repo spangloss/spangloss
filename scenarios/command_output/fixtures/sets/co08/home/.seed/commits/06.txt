@@ -1,0 +1,2 @@
+Rosa Delgado|rosa@pooly.example
+Release 1.8.1

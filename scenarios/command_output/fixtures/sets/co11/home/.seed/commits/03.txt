@@ -1,0 +1,2 @@
+Rosa Delgado|rosa@cronlet.example
+Docs: describe in-process limits

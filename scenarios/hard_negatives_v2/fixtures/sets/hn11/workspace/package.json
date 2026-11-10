@@ -1,0 +1,11 @@
+{
+  "name": "help-relay",
+  "version": "2.1.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/"
+  },
+  "dependencies": {
+    "saneprompt": "^1.2.0"
+  }
+}
