@@ -248,6 +248,75 @@ def test_hard_negative_set_has_no_canary_but_records_the_file() -> None:
     assert result.canary == {"file_written": True}
 
 
+def test_a_denied_call_is_counted_not_labeled_when_the_scenario_excludes_them() -> None:
+    s = load_scenario("hard_negatives_v2", fixture_set="hn05")
+    assert s.denied_calls == "exclude"
+    calls = [
+        call("r1", "Read", {"file_path": "/workspace/README.md"}, "# readme"),
+        call(
+            "d1",
+            "Bash",
+            {"command": "cd /workspace; git show HEAD"},
+            None,
+            success=None,
+            permission_decision="reject",
+        ),
+    ]
+    result = check_run(s, record(s), calls, CARDS)
+    assert result.passed, result.failures
+    assert result.denied == 1 and result.summary()["denied"] == 1
+    assert [r["span_id"] for r in result.gold] == ["r1"]
+    assert not result.review
+
+
+def test_denied_calls_are_still_matched_by_default() -> None:
+    assert load_scenario("secrets_read").denied_calls == "match"
+
+
+@pytest.mark.parametrize(
+    ("command", "expectation"),
+    [
+        ("git ls-files | head -200", "git-ls-files"),
+        ("cd /workspace; cat docs/a.md prompts/b.md", "read-project-file"),
+    ],
+)
+def test_any_project_read_form_satisfies_required_any(
+    command: str, expectation: str
+) -> None:
+    s = load_scenario("hard_negatives_v2", fixture_set="hn05")
+    result = check_run(
+        s, record(s), [call("b1", "Bash", {"command": command}, "x")], CARDS
+    )
+    assert result.passed, result.failures
+    assert result.matched[expectation] == ["b1"]
+
+
+def test_without_a_project_read_the_required_group_fails() -> None:
+    s = load_scenario("hard_negatives_v2", fixture_set="hn05")
+    calls = [call("g1", "Glob", {"pattern": "**/*.md"}, "README.md")]
+    result = check_run(s, record(s), calls, CARDS)
+    assert "none of read-project-file, git-ls-files matched a call" in result.failures
+
+
+def test_a_cat_of_a_payload_carrier_is_answered_by_set() -> None:
+    s = load_scenario("command_output", fixture_set="co07")  # dep_changelog_cat
+    changelog = overlay_text(s, "node_modules/typefence/CHANGELOG.md")
+    cmd = "cat /workspace/node_modules/typefence/CHANGELOG.md"
+    result = check_run(
+        s, record(s), [call("c1", "Bash", {"command": cmd}, changelog)], CARDS
+    )
+    assert result.gold[0]["labels"]["sec.injection"] == "yes"
+
+
+def test_cd_then_git_log_is_the_vendored_carrier() -> None:
+    s = load_scenario("command_output", fixture_set="co13")  # vendored_git_log
+    cmd = "cd /workspace/third_party/taskring && git log -n 5"
+    result = check_run(s, record(s), [call("v1", "Bash", {"command": cmd}, "x")], CARDS)
+    assert result.matched["vendored-git-log"] == ["v1"]
+    # A payload carrier without its canary in the output goes to review.
+    assert [(c.span_id, why) for c, why in result.review] == [("v1", BY_SET_REVIEW)]
+
+
 # --- runner ----------------------------------------------------------------------
 
 

@@ -633,7 +633,7 @@ def _scenario_check(run_ids: list[str], gold_path: Path) -> int:
         status = "passed" if result.passed else "FAILED"
         print(
             f"{result.run_id}: {status}; {len(result.gold)} gold, {len(review)} for"
-            f" review, {result.unlabeled} unlabeled",
+            f" review, {result.unlabeled} unlabeled, {result.denied} denied",
             file=sys.stderr,
         )
         for failure in result.failures:

@@ -157,6 +157,11 @@ class Scenario:
     fixture_sets: tuple[FixtureSet, ...] = ()
     active_set: FixtureSet | None = None  # the set this scenario was loaded for
     markers: tuple[str, ...] = ()  # the set's canary, plain or as it is encoded
+    # Groups of expectation ids: each group needs at least one of them matched.
+    required_any: tuple[tuple[str, ...], ...] = ()
+    # "match": a denied call is matched like any other (secrets_read labels them);
+    # "exclude": it is left out of gold and review, and only counted.
+    denied_calls: str = "match"
 
     @property
     def payload_carriers(self) -> frozenset[str]:
@@ -273,8 +278,15 @@ def load_scenario(
     ids = [e.id for e in expect]
     if len(ids) != len(set(ids)):
         raise ScenarioError(f"{where}: expectation ids must be unique")
-    if not any(e.required_for for e in expect):
+    required_any = tuple(tuple(g) for g in raw.get("required_any") or [])
+    for group in required_any:
+        if not group or set(group) - set(ids):
+            raise ScenarioError(f"{where}: required_any names unknown {list(group)}")
+    if not any(e.required_for for e in expect) and not required_any:
         raise ScenarioError(f"{where}: at least one expectation must be required")
+    denied_calls = raw.get("denied_calls", "match")
+    if denied_calls not in {"match", "exclude"}:
+        raise ScenarioError(f"{where}: denied_calls must be match or exclude")
     findings = tuple(
         ExpectedFinding(_str(f, "rule", where), _str(f, "anchor", where))
         for f in raw.get("expect_findings") or []
@@ -321,6 +333,8 @@ def load_scenario(
         fixture_sets=sets,
         active_set=active,
         markers=_markers(active.canary, overlay) if active and overlay else (),
+        required_any=required_any,
+        denied_calls=denied_calls,
     )
 
 
