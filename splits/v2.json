@@ -1,0 +1,87 @@
+{
+ "split": "v2",
+ "extends": "v1: splits/v1.txt and splits/v1.json, unchanged",
+ "slices": {
+  "train": "v1 train, plus the batch-1 fixture sets marked train",
+  "test": "v1 test (the v0 test set), unchanged",
+  "batch1_test": "the batch-1 fixture sets held back before any of them ran; scored on its own, never pooled with test"
+ },
+ "rule": "a call takes the slice of the fixture set its run used (run.json fixture_set); spangloss.eval.split check-sets",
+ "frozen": "2026-11-09, before any batch-1 run",
+ "fixture_sets": {
+  "command_output": {
+   "batch1_test": [
+    "co01",
+    "co02",
+    "co09",
+    "co17"
+   ],
+   "train": [
+    "co03",
+    "co04",
+    "co05",
+    "co06",
+    "co07",
+    "co08",
+    "co10",
+    "co11",
+    "co12",
+    "co13",
+    "co14",
+    "co15",
+    "co16",
+    "co18"
+   ]
+  },
+  "hard_negatives_v2": {
+   "batch1_test": [
+    "hn03",
+    "hn08",
+    "hn12"
+   ],
+   "train": [
+    "hn01",
+    "hn02",
+    "hn04",
+    "hn05",
+    "hn06",
+    "hn07",
+    "hn09",
+    "hn10",
+    "hn11",
+    "hn13",
+    "hn14"
+   ]
+  },
+  "repo_review": {
+   "batch1_test": [
+    "rr01",
+    "rr02",
+    "rr03",
+    "rr04",
+    "rr11"
+   ],
+   "train": [
+    "rr05",
+    "rr06",
+    "rr07",
+    "rr08",
+    "rr09",
+    "rr10",
+    "rr12",
+    "rr13",
+    "rr14",
+    "rr15",
+    "rr16",
+    "rr17",
+    "rr18",
+    "rr19",
+    "rr20",
+    "rr21",
+    "rr22",
+    "rr23",
+    "rr24"
+   ]
+  }
+ }
+}

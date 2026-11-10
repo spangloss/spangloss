@@ -2,12 +2,15 @@ from pathlib import Path
 
 from spangloss.eval.split import (
     build_split,
+    check_sets,
     load_split,
+    set_slices,
     side_of,
     span_hash,
     summary,
 )
 from spangloss.parse.record import ParsedToolCall
+from spangloss.scenarios import load_scenario
 
 
 def _call(span_id: str, tool: str, args: dict) -> ParsedToolCall:
@@ -85,3 +88,26 @@ def test_load_split_by_hash(tmp_path: Path):
     assert side_of("a", split) == "test"
     assert side_of("b", split) == "train"
     assert side_of("c", split) is None
+
+
+# --- split v2: batch-1 fixture sets ----------------------------------------------
+
+
+def test_split_v2_was_fixed_from_the_scenarios_sets() -> None:
+    sets = {
+        name: {s.id: s.split for s in load_scenario(name).fixture_sets}
+        for name in ("repo_review", "command_output", "hard_negatives_v2")
+    }
+    assert check_sets(set_slices(), sets) == []
+    slices = set_slices()
+    assert sorted(k[1] for k, v in slices.items() if v == "batch1_test") == [
+        "co01", "co02", "co09", "co17", "hn03", "hn08", "hn12",
+        "rr01", "rr02", "rr03", "rr04", "rr11",
+    ]  # fmt: skip
+
+
+def test_a_set_on_the_wrong_side_or_missing_is_reported() -> None:
+    slices = {("s", "a1"): "train", ("s", "a2"): "batch1_test"}
+    assert check_sets(slices, {"s": {"a1": "train", "a2": "test"}}) == []
+    problems = check_sets(slices, {"s": {"a1": "test", "a3": "train"}})
+    assert len(problems) == 3

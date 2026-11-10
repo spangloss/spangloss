@@ -11,6 +11,12 @@ fixture sets held back before their runs, in a later split version.
 
     uv run python -m spangloss.eval.split build   # write splits/v1.{txt,json}
     uv run python -m spangloss.eval.split check   # the files match the gold
+
+Split v2 (splits/v2.json) keeps v1 as it is and adds the batch-1 fixture sets,
+assigned by set before any of them ran. A set's calls take its slice: train, or
+batch1_test, a test slice of its own that is never pooled with v1's test.
+
+    uv run python -m spangloss.eval.split check-sets  # scenarios agree with v2
 """
 
 import hashlib
@@ -52,6 +58,10 @@ HELD_OUT_SHAPES: dict[str, frozenset[str]] = {
 }
 
 Side = Literal["train", "test"]
+
+SPLIT_V2_FILE = Path("splits/v2.json")
+# A fixture set's split in scenario.yaml -> its slice in split v2.
+SET_SLICES = {"train": "train", "test": "batch1_test"}
 
 
 def span_hash(span_id: str) -> str:
@@ -129,6 +139,48 @@ def summary(
     return out
 
 
+def set_slices(path: Path = SPLIT_V2_FILE) -> dict[tuple[str, str], str]:
+    """(scenario, fixture set) -> slice, from split v2."""
+    body = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        (scenario, set_id): slice_
+        for scenario, slices in body["fixture_sets"].items()
+        for slice_, ids in slices.items()
+        for set_id in ids
+    }
+
+
+def check_sets(
+    slices: dict[tuple[str, str], str], scenarios: dict[str, dict[str, str]]
+) -> list[str]:
+    """Problems where scenarios' fixture sets ({scenario: {set: split}}) and split
+    v2 disagree: a set missing from either, or on a different side."""
+    problems = []
+    declared = {
+        (name, sid): SET_SLICES[split]
+        for name, sets in scenarios.items()
+        for sid, split in sets.items()
+    }
+    for key in sorted(set(declared) | set(slices)):
+        if declared.get(key) != slices.get(key):
+            problems.append(
+                f"{key[0]} {key[1]}: scenario says {declared.get(key)},"
+                f" split v2 says {slices.get(key)}"
+            )
+    return problems
+
+
+def _scenario_sets() -> dict[str, dict[str, str]]:
+    from spangloss.scenarios import load_scenario, scenario_names
+
+    out = {}
+    for name in scenario_names():
+        sets = load_scenario(name).fixture_sets
+        if sets:
+            out[name] = {s.id: s.split for s in sets}
+    return out
+
+
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     with path.open(encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
@@ -164,6 +216,15 @@ def _inputs() -> tuple[
 
 def main(argv: list[str]) -> int:
     command = argv[0] if argv else "check"
+    if command == "check-sets":
+        problems = check_sets(set_slices(), _scenario_sets())
+        for p in problems:
+            print(f"error: {p}", file=sys.stderr)
+        if not problems:
+            print(
+                f"{SPLIT_V2_FILE} matches the scenarios' fixture sets", file=sys.stderr
+            )
+        return 1 if problems else 0
     real, scen, calls, variant_of = _inputs()
     side = build_split(real, scen, calls, variant_of)
     hashed = {span_hash(k): v for k, v in side.items()}
