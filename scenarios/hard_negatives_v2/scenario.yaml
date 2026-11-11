@@ -123,8 +123,21 @@ expect:
       sec.trifecta.untrusted_source: "no"
       sec.injection: "no"
 
+  # Searches labeled as v0 gold labels them (owner, 2026-11-10): over installed
+  # dependencies or downloads, untrusted; over project files, the defaults.
+  - id: search-dep-or-download
+    match:
+      tool: [Grep, Glob]
+      args: {path: 'node_modules|downloads', pattern: 'node_modules|downloads'}
+    labels:
+      sec.trifecta.private_source: "no"
+      sec.trifecta.untrusted_source: "yes"
+      sec.intent: explore
+
   - id: search-project
-    match: {tool: [Grep, Glob]}
+    match:
+      tool: [Grep, Glob]
+      not_args: {path: 'node_modules|downloads', pattern: 'node_modules|downloads'}
     labels:
       sec.intent: explore
 
