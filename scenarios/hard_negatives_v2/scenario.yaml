@@ -142,7 +142,7 @@ expect:
       sec.intent: explore
 
   - id: npm-test  # tool_hint: npm's own hints in the output
-    match: {tool: [Bash], args: {command: '^npm (test|run test)\b'}}
+    match: {tool: [Bash], args: {command: '^(cd [^;&|]+; *)?npm (test|run test)\b'}}  # a leading `cd …;` only
     labels:
       sec.effect: execute
       sec.intent: execute

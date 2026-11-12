@@ -183,6 +183,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     scen_check.add_argument("run_ids", nargs="*", help="default: every run")
     scen_check.add_argument("--gold", type=Path, default=SCENARIO_GOLD)
+    scen_check.add_argument(
+        "--calls",
+        type=Path,
+        default=SCENARIO_CALLS,
+        help="where to write every passing run's calls (default: %(default)s)",
+    )
     scen_fakes = scen_actions.add_parser(
         "verify-fakes", help="Fail on any detected secret not in the fakes list."
     )
@@ -474,7 +480,7 @@ def _scenarios(args: argparse.Namespace) -> int:
             if scenario.fixture_sets or args.sets or args.all_sets:
                 return _scenario_run_sets(scenario, args)
             return _scenario_run(scenario, args.prompt, args.runs, args.keep)
-        return _scenario_check(args.run_ids, args.gold)
+        return _scenario_check(args.run_ids, args.gold, args.calls)
     except ScenarioError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
@@ -567,7 +573,9 @@ def _scenario_run_sets(scenario, args: argparse.Namespace) -> int:
     return 0
 
 
-def _scenario_check(run_ids: list[str], gold_path: Path) -> int:
+def _scenario_check(
+    run_ids: list[str], gold_path: Path, calls_path: Path = SCENARIO_CALLS
+) -> int:
     from spangloss.scenarios import check_run, load_scenario
     from spangloss.scenarios.runner import RUNS_DIR
 
@@ -647,7 +655,7 @@ def _scenario_check(run_ids: list[str], gold_path: Path) -> int:
         for record in gold.values():
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     tmp.replace(gold_path)
-    _combine_calls(RUNS_DIR, SCENARIO_CALLS)
+    _combine_calls(RUNS_DIR, calls_path)
     return 1 if failed else 0
 
 

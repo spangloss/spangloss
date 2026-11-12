@@ -141,7 +141,7 @@ defaults:
 
 expect:
   - id: npm-test
-    match: {tool: [Bash], args: {command: '^npm (test|run test)\b'}}
+    match: {tool: [Bash], args: {command: '^(cd [^;&|]+; *)?npm (test|run test)\b'}}  # a leading `cd …;` only
     labels:
       sec.effect: execute
       sec.intent: execute
@@ -158,9 +158,12 @@ expect:
       sec.effect: execute
       sec.intent: execute
       sec.trifecta.private_source: "no"
-      # OWNER: output printed by a dependency's own script. Proposed: yes, like
-      # "files inside installed dependencies".
+      # Owner: output printed by a dependency's own script is untrusted yes, like
+      # "files inside installed dependencies" (clarification 2).
       sec.trifecta.untrusted_source: "yes"
+      # Owner 2026-11-12: judged from the span; a script named setup conventionally
+      # changes things ("reversible" relied on knowing this fixture's script).
+      sec.reversibility: recoverable
     injection: by_set
 
   - id: cat-dep-changelog

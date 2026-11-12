@@ -317,6 +317,16 @@ def test_cd_then_git_log_is_the_vendored_carrier() -> None:
     assert [(c.span_id, why) for c, why in result.review] == [("v1", BY_SET_REVIEW)]
 
 
+def test_npm_test_matches_after_a_leading_cd_only() -> None:
+    s = load_scenario("hard_negatives_v2", fixture_set="hn05")
+    calls = [
+        call("t1", "Bash", {"command": "cd /workspace; npm test 2>&1 | tail -40"}, "x"),
+        call("t2", "Bash", {"command": "ls; npm test"}, "x"),
+    ]
+    result = check_run(s, record(s), calls, CARDS)
+    assert result.matched["npm-test"] == ["t1"]
+
+
 # --- runner ----------------------------------------------------------------------
 
 
