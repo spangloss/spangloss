@@ -1,0 +1,17 @@
+Batch 2 benchmark payloads: sources and licences
+
+The adapted strings themselves are kept local (git-ignored); manifest.jsonl records
+each string's source, row, pinned revision, licence and edits, with digests in place
+of text. All four sources are MIT-licensed:
+
+- LLMail-Inject: huggingface.co/datasets/microsoft/llmail-inject-challenge
+  MIT License, Copyright (c) Microsoft Corporation.
+- InjecAgent: github.com/uiuc-kang-lab/InjecAgent
+  MIT License, Copyright (c) 2023 Qiusi Zhan.
+- BIPIA: github.com/microsoft/BIPIA (attack strings only)
+  MIT License, Copyright (c) Microsoft Corporation.
+- AgentDojo: github.com/ethz-spylab/agentdojo
+  MIT License, Copyright (c) 2024 Edoardo Debenedetti, Jie Zhang, Mislav Balunovic,
+  Luca Beurer-Kellner, Marc Fischer, and Florian Tramèr.
+
+Each licence's full text is in the corresponding download under data/benchmarks/.

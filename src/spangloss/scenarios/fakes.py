@@ -7,8 +7,12 @@ standard detect-secrets hook skips scenario fixtures; this check replaces it the
 
 scenarios/TEST_VALUES.txt lists test-mode values (labeled data_class none) in the
 same format. verify-fakes accepts them too; nothing else treats them as fakes.
+
+Git-ignored files are skipped: they can't be committed, and some (batch 2's local
+payload text and edit log) hold third-party text that is never published.
 """
 
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,6 +52,7 @@ def verify_fakes(paths: list[Path], fakes: frozenset[str]) -> list[Unlisted]:
         for f in ([p] if p.is_file() else sorted(p.rglob("*")))
         if f.is_file()
     ]
+    files = [f for f in files if f not in _ignored(files)]
     found: list[Unlisted] = []
     with default_settings():
         collection = SecretsCollection()
@@ -57,3 +62,20 @@ def verify_fakes(paths: list[Path], fakes: frozenset[str]) -> list[Unlisted]:
             if secret.secret_value not in fakes:
                 found.append(Unlisted(filename, secret.line_number, secret.type))
     return sorted(found, key=lambda u: (u.path, u.line))
+
+
+def _ignored(files: list[Path]) -> set[Path]:
+    """The files git ignores; none outside a git work tree."""
+    if not files:
+        return set()
+    try:
+        result = subprocess.run(
+            ["git", "check-ignore", "--stdin"],
+            input="\n".join(str(f) for f in files),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return set()
+    return {Path(line) for line in result.stdout.splitlines() if line}

@@ -270,3 +270,4 @@ data/finetune/
 # batch 2 payload text stays local; heldout.sha256 and the edit manifest are committed
 scenarios/batch2/payloads/hand/
 scenarios/batch2/payloads/benchmark/
+data/benchmarks/
