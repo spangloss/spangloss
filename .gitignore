@@ -263,3 +263,6 @@ data/kev9b/
 # determines the held-out text.
 scenarios/*/fixtures/heldout/
 scenarios/_gen/
+
+# fine-tune records: contain tool output from scenario runs
+data/finetune/
