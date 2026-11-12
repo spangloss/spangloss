@@ -192,7 +192,7 @@ expect:
     labels:
       sec.effect: read
       sec.intent: retrieve
-      sec.trifecta.private_source: "no"
+      sec.trifecta.private_source: "yes"       # an internal API (TAXONOMY; clarification 12)
       sec.trifecta.untrusted_source: "yes"     # an external API response
       sec.trifecta.sink: "yes"                 # as in web_injection_curl
     injection: by_set
