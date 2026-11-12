@@ -66,8 +66,12 @@ separately.
   `kev_modal.py`'s scorer encodes with Kev's default 384-token state limit, not
   `--max_state`. So no temperature was fitted (served at 1.00; accuracy is unaffected,
   probabilities are uncalibrated) and the skill's dev scoring and public forgetting
-  check did not run. Secrets recall was measured locally instead.
-- Spend: $0.90 on Modal (training $0.90, validate and pull under $0.01).
+  check did not run. Secrets recall was measured locally instead. Fixed afterwards
+  (2026-11-12, local kev branch): the scorer now uses the run's `--max_state`, and a
+  `finish` entrypoint re-ran the post-training steps on the saved checkpoint without
+  retraining; see Calibration below.
+- Spend: $0.90 on Modal (training $0.90, validate and pull under $0.01), plus $0.20 for
+  the calibration run (L40S, 1,400 s timeout; cap $1).
 
 ## Results (2026-11-12)
 
@@ -115,5 +119,67 @@ Secrets recall (the 5 scenario gold calls labeled secrets, model answers): Kev-4
 **Caveats.** Every test set shares the train side's scenario templates and the batch-1
 generator's wording banks; held-out fixture sets and v0 test calls are new instances,
 not new sources. So this shows injection is learnable in distribution, not that it
-transfers to real sessions. Small n: 17 and 11 injection-yes calls. No temperature fit
-and no public forgetting check (see above).
+transfers to real sessions. Small n: 17 and 11 injection-yes calls. The tables above are at
+temperature 1.00; calibration came after (below) and changes no answer.
+
+## Calibration and forgetting check (2026-11-12)
+
+`kev_modal.py::finish` on the saved `spg-pilot-v1` checkpoint: temperature fitted on the
+calibration partition (97 records; min NLL, micro), development and the Kev-4B baseline
+scored at the training state limit (1,536), then the skill's forgetting check. No
+retraining. The checkpoint's `head.pt` (temperature only) was pulled and served
+locally.
+
+- **Temperature: 1.37** (Kev-4B baseline on the same records: 1.15).
+- **Skill's development scoring** (Modal, 276 questions): accuracy 0.913 → 0.982
+  against the baseline; ECE 0.012 raw, 0.006 calibrated (baseline 0.048 / 0.056); the
+  paired bootstrap is significant for accuracy, Brier and ECE.
+- **Forgetting check** (417 public decision-v7 development records, raw logits): Kev-4B
+  accuracy 0.862, Brier 0.225; fine-tuned 0.865, 0.220. No forgetting.
+
+ECE through `spangloss label` (local, served on MPS via MLX in bf16), before (T 1.00)
+and after (T 1.37), 10 equal-width bins on the probability of the chosen answer,
+model-answered labels only. Accuracy is unchanged, as expected.
+
+| Slice | Labels | n | Mean p before → after | ECE before → after |
+|---|---|---|---|---|
+| train-dev | all | 409 | 0.979 → 0.966 | 0.007 → 0.020 |
+| | injection | 41 | 0.982 → 0.968 | 0.041 → 0.046 |
+| batch1_test | all | 575 | 0.979 → 0.965 | 0.013 → 0.026 |
+| | injection | 57 | 0.979 → 0.966 | 0.025 → 0.027 |
+| v0 scenario test | all | 452 | 0.987 → 0.977 | 0.015 → 0.021 |
+| | injection | 47 | 0.994 → 0.986 | 0.006 → 0.014 |
+
+**Calibration made local ECE worse on all three slices**, while on Modal it halved
+development ECE. Accuracy here is 98–99% and the model was already slightly
+underconfident; T 1.37 softens it further. A likely cause, not verified: the
+temperature was fitted on CUDA fp32 logits, and local serving (MLX bf16) is already
+less confident (mean confidence on development: Modal raw 0.986, local 0.979). For
+these slices T 1.00 is the better-calibrated setting; a temperature fitted on the
+serving path would settle it. All three slices share the train side's templates, so
+none says much about calibration on new data.
+
+## Real sessions (2026-11-12, local only)
+
+The 20 real-session gold calls (`data/eval/gold.jsonl`, frozen v0) labeled with the
+calibrated fine-tuned model on the local server, scored next to the stored Kev-4B and
+Jev labels. Real-session content stayed on this machine.
+
+| Label | Kev-4B-FT (cal) | Kev-4B | Jev |
+|---|---|---|---|
+| data_class | 12/13 | 12/13 | 12/12 (1 not labeled) |
+| effect | 17/20 | 18/20 | 19/19 (1) |
+| injection | 15/15 | unsupported | 14/14 (1) |
+| intent | 10/13 | 8/13 | 12/12 (1) |
+| reversibility | 11/13 | 12/13 | 11/12 (1) |
+| trifecta.private_source | 19/20 | 17/20 | 17/19 (1) |
+| trifecta.sink | 20/20 | 18/20 | 17/19 (1) |
+| trifecta.untrusted_source | 18/20 | 18/20 | 17/19 (1) |
+| **seven (excl. injection)** | **107/119 (89.9%)** | 103/119 (86.6%) | 105/112 (93.8%) |
+| ECE, all labels | 0.026 (134) | 0.139 (119) | 0.069 (126) |
+
+- **Injection false positives: 0/15** for the fine-tuned model (and Jev). Real-session
+  gold has no injection-yes call, so this measures false positives only, not recall.
+- The fine-tuned model is up 4 labels on Kev-4B overall (intent +2, private_source +2,
+  sink +2) and down 1 each on effect and reversibility. At n = 13–20 per label, none of
+  these differences is distinguishable from noise.
