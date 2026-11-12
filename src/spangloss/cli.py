@@ -223,6 +223,43 @@ def main(argv: list[str] | None = None) -> int:
         f"{DEFAULT_GOLD} and scenarios={SCENARIO_GOLD})",
     )
 
+    fit = commands.add_parser(
+        "fit-temperature",
+        help="Fit a temperature for a served Kev model on a calibration partition,"
+        " through the labeling path; writes nothing.",
+    )
+    fit.add_argument(
+        "--records",
+        type=Path,
+        required=True,
+        help="the calibration partition: System One records (state, questions)",
+    )
+    fit.add_argument(
+        "--input",
+        type=Path,
+        action="append",
+        required=True,
+        help="parsed calls holding the records' calls; repeat for several files",
+    )
+    fit.add_argument("--kev-url", help="the Kev server to fit (default: the local Kev)")
+    fit.add_argument(
+        "--name", help="the backend name for a --kev-url server, e.g. kev-4b-ft"
+    )
+    fit.add_argument(
+        "--kev-key-var", help="the .env variable holding that server's API key"
+    )
+    fit.add_argument(
+        "--max-evidence-chars",
+        type=int,
+        default=DEFAULT_MAX_EVIDENCE_CHARS,
+        help=f"default: {DEFAULT_MAX_EVIDENCE_CHARS}",
+    )
+    fit.add_argument(
+        "--config",
+        type=Path,
+        help=f"first-party MCP servers (default: {DEFAULT_CONFIG}, if present)",
+    )
+
     rules = commands.add_parser(
         "rules", help="Run the detection rules over stored labels."
     )
@@ -278,6 +315,8 @@ def _run(args: argparse.Namespace) -> int:
         return _rules(args.input, args.db, args.model)
     if args.command == "variance":
         return _variance(args.db, args.gold)
+    if args.command == "fit-temperature":
+        return _fit_temperature(args)
     if args.command in ("label", "rederive"):
         try:
             config = (
@@ -308,6 +347,50 @@ def _run(args: argparse.Namespace) -> int:
     if args.command == "import-sheet":
         return _import_sheet(args.sheet, args.input, args.gold)
     return _parse(args.input, args.logs, args.output)
+
+
+def _fit_temperature(args: argparse.Namespace) -> int:
+    from spangloss.eval.temperature import capture_rows, format_fit, report
+
+    if bool(args.kev_url) != bool(args.name) or (args.kev_key_var and not args.kev_url):
+        print(
+            "error: --kev-url and --name go together; --kev-key-var needs them",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        config = (
+            load_config(args.config, required=True) if args.config else load_config()
+        )
+    except ConfigError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    with args.records.open(encoding="utf-8") as f:
+        records = [json.loads(line) for line in f if line.strip()]
+    wanted = {r["meta"]["span_id"] for r in records}
+    calls = [c for path in args.input for c in read_calls(path) if c.span_id in wanted]
+    found = {c.span_id for c in calls}
+    if missing := len(wanted - found):
+        print(
+            f"warning: {missing} of {len(wanted)} record calls not in --input",
+            file=sys.stderr,
+        )
+    backend = (
+        make_remote_kev(args.kev_url, args.name, args.kev_key_var)
+        if args.kev_url
+        else make_backend("kev")
+    )
+    backend.describe()  # fail early when the server isn't up
+    rows, counts = capture_rows(
+        calls, records, backend, args.max_evidence_chars, config.first_party_mcp_servers
+    )
+    try:
+        fit = report(rows, counts)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(format_fit(backend.model, fit))
+    return 0
 
 
 def read_calls(path: Path) -> list[ParsedToolCall]:
