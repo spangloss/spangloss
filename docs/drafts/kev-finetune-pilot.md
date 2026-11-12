@@ -58,6 +58,62 @@ Local only: the checkpoint is pulled and served with `kev.serve` on port 8010; t
 injection, next to Kev-4B, Kev-9B and Jev. Hard-negative false positives are reported
 separately.
 
-## Results
+## What changed from the plan
 
-(after the run)
+- `--max_state 1536` instead of 1024: at 1024 the trainer would have dropped 33 records
+  (24 train, 5 of them injection yes); every state fits under 1,406 tokens.
+- The run crashed after saving the checkpoint, while scoring calibration:
+  `kev_modal.py`'s scorer encodes with Kev's default 384-token state limit, not
+  `--max_state`. So no temperature was fitted (served at 1.00; accuracy is unaffected,
+  probabilities are uncalibrated) and the skill's dev scoring and public forgetting
+  check did not run. Secrets recall was measured locally instead.
+- Spend: $0.90 on Modal (training $0.90, validate and pull under $0.01).
+
+## Results (2026-11-12)
+
+Local, per call, through `spangloss label` (chunk combining included). "Seven" is the
+seven non-injection labels; hard-negative FP counts injection yes on hard-negative
+calls whose gold is no.
+
+| Slice | Model | Seven | Injection | Injection recall | Hard-neg FP |
+|---|---|---|---|---|---|
+| batch1_test (74 calls) | **Kev-4B-FT** | 514/518 (99.2%) | **56/57 (98.2%)** | 17/17 | 0/9 |
+| | Kev-4B | 487/518 (94.0%) | unsupported | — | — |
+| | Kev-9B | 492/518 (95.0%) | 41/57 (71.9%) | 7/17 | 0/9 |
+| | Jev | 481/518 (92.9%) | 57/57 (100%) | 17/17 | 0/9 |
+| v0 scenario test (59) | **Kev-4B-FT** | 409/413 (99.0%) | **47/47 (100%)** | 11/11 | 0/8 |
+| | Kev-4B | 405/413 (98.1%) | unsupported | — | — |
+| | Kev-9B | 401/413 (97.1%) | 35/47 (74.5%) | 3/11 | 4/8 |
+| | Jev | 405/413 (98.1%) | 47/47 (100%) | 11/11 | 0/8 |
+| train-dev (53) | Kev-4B-FT | 367/371 (98.9%) | 39/41 (95.1%) | 9/9 | 1/10 |
+| | Kev-4B | 353/371 (95.1%) | unsupported | — | — |
+| | Kev-9B | 353/371 (95.1%) | 34/41 (82.9%) | 6/9 | 1/10 |
+| | Jev | 354/371 (95.4%) | 40/41 (97.6%) | 9/9 | 0/10 |
+
+Args-only labels (effect, intent, reversibility, trifecta) on calls whose args-only
+state is not in the training records, next to all calls:
+
+| Slice | Model | All | Unseen state |
+|---|---|---|---|
+| batch1_test | Kev-4B-FT | 440/444 (99.1%) | 332/336 (98.8%) |
+| | Kev-4B | 413/444 (93.0%) | 314/336 (93.5%) |
+| v0 scenario test | Kev-4B-FT | 354/354 (100%) | 330/330 (100%) |
+| | Kev-4B | 354/354 (100%) | 330/330 (100%) |
+| train-dev | Kev-4B-FT | 315/318 (99.1%) | 231/234 (98.7%) |
+| | Kev-4B | 301/318 (94.7%) | 219/234 (93.6%) |
+
+Secrets recall (the 5 scenario gold calls labeled secrets, model answers): Kev-4B-FT
+5/5, Kev-4B 5/5, Kev-9B 5/5.
+
+**Against the criteria:**
+
+1. Injection learnable: **pass.** batch1_test 98.2% (needs ≥ 81.9%), 0 hard-negative
+   FP; v0 scenario test 100% (needs ≥ 84.5%), 0 hard-negative FP.
+2. No regression: **pass.** v0 scenario test seven labels 99.0% vs Kev-4B 98.1%
+   (within 1 point, above it); secrets recall 5/5, unchanged.
+
+**Caveats.** Every test set shares the train side's scenario templates and the batch-1
+generator's wording banks; held-out fixture sets and v0 test calls are new instances,
+not new sources. So this shows injection is learnable in distribution, not that it
+transfers to real sessions. Small n: 17 and 11 injection-yes calls. No temperature fit
+and no public forgetting check (see above).
