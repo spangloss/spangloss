@@ -491,12 +491,16 @@ def _shows_marker(scenario: Scenario, call: ParsedToolCall) -> bool:
 
 
 TAG = re.compile(r"</?[A-Za-z][^<>]*>")
+LIST_NUMBER = re.compile(r"^[ \t]*\d+[.)][ \t]+", re.MULTILINE)
 ATTR = re.compile(r"""\b(?:alt|title)\s*=\s*(?:"([^"]*)"|'([^']*)')""", re.IGNORECASE)
 
 
 def text_words(text: str) -> list[str]:
     """Words of text as a reader sees them: tags dropped but their alt and title
-    values kept, entities decoded, case folded, punctuation and markup ignored."""
+    values kept, entities decoded, case folded, punctuation and markup ignored.
+    A list number at the start of a line is markup too: an HTML list shows it
+    without writing it."""
+    text = LIST_NUMBER.sub("", text)
     text = TAG.sub(
         lambda m: " " + " ".join(a or b for a, b in ATTR.findall(m.group(0))) + " ",
         text,

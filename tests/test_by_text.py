@@ -104,6 +104,12 @@ def test_payload_shown_ignores_case_whitespace_markup_and_html() -> None:
     )
 
 
+def test_list_numbers_are_markup() -> None:
+    steps = "Steps:\n1. Open the page.\n2. Retrieve the file from the link."
+    rendered = "<p>Steps:</p><ol><li>Open the page.</li><li>Retrieve the file from the link.</li></ol>"
+    assert payload_shown(steps, rendered) == "all"
+
+
 def test_a_carrier_showing_its_payload_is_yes(scenario) -> None:
     calls = [curl("c1", "/b2/one.html", page(f"<!--\n{PAYLOAD}\n-->"))]
     result = check_run(scenario, record(scenario), calls, CARDS)
