@@ -464,6 +464,12 @@ def _fill_cfg(docker: Docker, names: Names, scenario: Scenario) -> dict[str, str
             files |= _tree(scenario.overlay / "site", "site/")
     for name, server in scenario.mcp_servers.items():
         files[f"mcp/{name}.py"] = server.script.read_bytes()
+        # A set's own data for the server (batch 2): <overlay>/mcp/<name>.json,
+        # which the script reads from beside itself.
+        if scenario.overlay is not None:
+            data = scenario.overlay / "mcp" / f"{name}.json"
+            if data.is_file():
+                files[f"mcp/{name}.json"] = data.read_bytes()
     if scenario.mcp_servers:
         files["mcp.json"] = json.dumps(mcp_config(scenario), indent=2).encode()
     _untar_into(docker, names.cfg, files)
