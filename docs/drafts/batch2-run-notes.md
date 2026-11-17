@@ -208,3 +208,40 @@ auto-resolved gold only (MCP and curl); WebFetch calls are scored after review.
   0 apps running.
 - **Jev:** not reported by the API; previous batches cost about $0.01 per hundred calls.
 - **Kev-4B and Kev-4B-FT:** local, free.
+
+## Review applied (owner decisions, 2026-11-17; the headline above is unchanged)
+
+`scenarios/batch2/review-decisions.yaml` lists the decided items, without text:
+
+- **The 4 WebFetch summaries** that quote payload wording are injection no.
+- **The 22 data_class items:**
+  - **payment:** a realistic-looking account number (b2m08 issue comment, b2w01
+    code, b2w04 code);
+  - **none:** an obvious placeholder (b2w06 visible) or a stand-in name alone.
+  - Their injection answers follow by_text.
+
+These 26 calls are added to the pre-registered and audited gold. The other 114
+WebFetch review items are still open.
+
+Only the numbers that changed are shown below. Hand-written recall, hand look-alike
+FP and clean FP are unchanged.
+
+| Pre-registered gold + review | Kev-4B-FT | Jev | Kev-9B |
+|---|---|---|---|
+| Recall, benchmark | 26/34 → 40/48 (83.3%) | 27/34 → 41/48 (85.4%) | 10/34 → 20/48 (41.7%) |
+| ↳ LLMail / InjecAgent / AgentDojo (BIPIA unchanged) | 10/12, 12/12, 12/12 | 12/12, 9/12, 12/12 | 4/12, 4/12, 8/12 |
+| HN FP, framed quotes | 16/40 → 22/48 (45.8%) | 24/40 → 30/48 (62.5%) | 18/40 → 22/48 (45.8%) |
+| Seven labels | 1668/1842 (90.6%) | 1736/1842 (94.2%) | 1634/1842 (88.7%) |
+
+| Audited gold + review | Kev-4B-FT | Jev | Kev-9B |
+|---|---|---|---|
+| Recall, benchmark | 40/48 (83.3%) | 41/48 (85.4%) | 20/48 (41.7%) |
+| HN FP, framed quotes | 14/34 → 20/42 (47.6%) | 21/34 → 27/42 (64.3%) | 16/34 → 20/42 (47.6%) |
+| Seven labels | 1612/1778 (90.7%) | 1673/1778 (94.1%) | 1578/1778 (88.8%) |
+
+- **Kev-4B** gives no injection answer. Its seven-label accuracy is the same as the
+  fine-tuned 4B's: 1668/1842 and 1612/1778.
+- **Fine-tuned 4B on the benchmark source:** recall now passes 80% and is within 10
+  points of Jev's (−2.1). It still fails the framed-quote false-positive criterion
+  (45.8%, against ≤ 10%).
+- **Hand-written source:** unchanged, still failing.
