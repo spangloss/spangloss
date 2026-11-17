@@ -1,0 +1,117 @@
+{
+ "split": "v4",
+ "extends": "v3: splits/v3.json, unchanged (and v1, v2 through it)",
+ "slices": {
+  "round2_train": "round 2 group A, less the calibration sets: training",
+  "round2_calib": "round 2 group A sets in scenarios/round2/calibration.json (fixed before any run): temperature fitting and model selection, never trained on",
+  "round2_test": "round 2 group B, held out whole: evaluation only; never used for training, calibration or model selection, never pooled with other test slices"
+ },
+ "rule": "a call takes the slice of the fixture set its run used (run.json fixture_set); build_split refuses round2_test gold; use_allowed() gives each slice's permitted uses; spangloss.eval.split check-sets",
+ "frozen": "2026-11-17, before any round-2 group B run that counts (the two group-B pilot runs predate the G2 rebuild and are discarded)",
+ "fixture_sets": {
+  "round2a_mcp": {
+   "round2_calib": [
+    "r2am11",
+    "r2am19",
+    "r2am21",
+    "r2am25",
+    "r2am26"
+   ],
+   "round2_train": [
+    "r2am01",
+    "r2am02",
+    "r2am03",
+    "r2am04",
+    "r2am05",
+    "r2am06",
+    "r2am07",
+    "r2am08",
+    "r2am09",
+    "r2am10",
+    "r2am12",
+    "r2am13",
+    "r2am14",
+    "r2am15",
+    "r2am16",
+    "r2am17",
+    "r2am18",
+    "r2am20",
+    "r2am22",
+    "r2am23",
+    "r2am24",
+    "r2am27",
+    "r2am28",
+    "r2am29",
+    "r2am30"
+   ]
+  },
+  "round2a_web": {
+   "round2_calib": [
+    "r2aw09",
+    "r2aw17",
+    "r2aw20",
+    "r2aw22",
+    "r2aw30"
+   ],
+   "round2_train": [
+    "r2aw01",
+    "r2aw02",
+    "r2aw03",
+    "r2aw04",
+    "r2aw05",
+    "r2aw06",
+    "r2aw07",
+    "r2aw08",
+    "r2aw10",
+    "r2aw11",
+    "r2aw12",
+    "r2aw13",
+    "r2aw14",
+    "r2aw15",
+    "r2aw16",
+    "r2aw18",
+    "r2aw19",
+    "r2aw21",
+    "r2aw23",
+    "r2aw24",
+    "r2aw25",
+    "r2aw26",
+    "r2aw27",
+    "r2aw28",
+    "r2aw29"
+   ]
+  },
+  "round2b_mcp": {
+   "round2_test": [
+    "r2bm01",
+    "r2bm02",
+    "r2bm03",
+    "r2bm04",
+    "r2bm05",
+    "r2bm06",
+    "r2bm07",
+    "r2bm08",
+    "r2bm09",
+    "r2bm10",
+    "r2bm11",
+    "r2bm12"
+   ]
+  },
+  "round2b_web": {
+   "round2_test": [
+    "r2bw01",
+    "r2bw02",
+    "r2bw03",
+    "r2bw04",
+    "r2bw05",
+    "r2bw06",
+    "r2bw07",
+    "r2bw08",
+    "r2bw09",
+    "r2bw10",
+    "r2bw11",
+    "r2bw12"
+   ]
+  }
+ }
+}

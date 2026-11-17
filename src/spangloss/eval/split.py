@@ -16,12 +16,23 @@ Split v2 (splits/v2.json) keeps v1 as it is and adds the batch-1 fixture sets,
 assigned by set before any of them ran. A set's calls take its slice: train, or
 batch1_test, a test slice of its own that is never pooled with v1's test.
 
-    uv run python -m spangloss.eval.split check-sets  # scenarios agree with v2 and v3
+    uv run python -m spangloss.eval.split check-sets  # scenarios agree with v2-v4
 
 Split v3 (splits/v3.json) keeps v1 and v2 as they are and adds batch 2
 (docs/drafts/batch2-design.md): every batch-2 set is in batch2_eval, a slice of its
 own that is never trained on and never pooled with test or batch1_test. Batch-2
 gold can't enter build_split at all: it refuses any record from a batch-2 scenario.
+
+Split v4 (splits/v4.json) keeps v1-v3 as they are and adds round 2
+(docs/drafts/round2-training-plan.md):
+- round2_train: group A's sets, except the calibration sets;
+- round2_calib: the 10 group-A sets in scenarios/round2/calibration.json, fixed
+  before any run; used to fit the temperature, never trained on;
+- round2_test: all of group B, held out whole. Never used for training, calibration
+  or model selection; build_split refuses it like batch 2, and use_allowed() says no
+  for every purpose.
+
+    uv run python -m spangloss.eval.split write-v4   # write splits/v4.json
 """
 
 import hashlib
@@ -74,26 +85,65 @@ BATCH2_SCENARIOS = frozenset({"batch2_mcp", "batch2_web"})
 BATCH2_SLICE = "batch2_eval"
 
 
+SPLIT_V4_FILE = Path("splits/v4.json")
+# Round 2: group A trains (less its calibration sets); group B is held out whole.
+ROUND2_TRAIN_SCENARIOS = frozenset({"round2a_mcp", "round2a_web"})
+ROUND2_TEST_SCENARIOS = frozenset({"round2b_mcp", "round2b_web"})
+ROUND2_TRAIN_SLICE = "round2_train"
+ROUND2_CALIB_SLICE = "round2_calib"
+ROUND2_TEST_SLICE = "round2_test"
+CALIBRATION_FILE = Path("scenarios/round2/calibration.json")
+# Scenarios whose gold is evaluation only: never split, trained on or calibrated on.
+HELD_OUT_SCENARIOS = BATCH2_SCENARIOS | ROUND2_TEST_SCENARIOS
+# What each slice may be used for; a slice not listed may be used for nothing.
+USES = {
+    "train": frozenset({"train"}),
+    ROUND2_TRAIN_SLICE: frozenset({"train"}),
+    ROUND2_CALIB_SLICE: frozenset({"calibrate", "select"}),
+}
+
+
 class HeldOutError(ValueError):
-    """Held-out (batch-2) data offered to a split that could put it in train."""
+    """Held-out (batch-2 or round-2 test) data offered where it could be used."""
 
 
-def slice_for(scenario: str, split: str) -> str:
-    """The slice a fixture set takes: batch2_eval for any batch-2 set."""
-    return BATCH2_SLICE if scenario in BATCH2_SCENARIOS else SET_SLICES[split]
+def calibration_sets(path: Path = CALIBRATION_FILE) -> frozenset[str]:
+    return frozenset(json.loads(path.read_text(encoding="utf-8"))["sets"])
+
+
+def slice_for(scenario: str, split: str, set_id: str | None = None) -> str:
+    """The slice a fixture set takes: batch2_eval for any batch-2 set, round2_test
+    for any group-B set, round2_calib or round2_train for a group-A set."""
+    if scenario in BATCH2_SCENARIOS:
+        return BATCH2_SLICE
+    if scenario in ROUND2_TEST_SCENARIOS:
+        return ROUND2_TEST_SLICE
+    if scenario in ROUND2_TRAIN_SCENARIOS:
+        if set_id is None:
+            raise ValueError(f"{scenario}: a group-A set's slice depends on its id")
+        return (
+            ROUND2_CALIB_SLICE if set_id in calibration_sets() else ROUND2_TRAIN_SLICE
+        )
+    return SET_SLICES[split]
+
+
+def use_allowed(slice_: str, purpose: str) -> bool:
+    """Whether calls in a slice may be used for a purpose: train, calibrate or
+    select (model selection). Test slices may be used for none of them."""
+    return purpose in USES.get(slice_, frozenset())
 
 
 def refuse_held_out(records: list[dict[str, Any]]) -> None:
-    """Raise if any gold record comes from a batch-2 scenario."""
+    """Raise if any gold record comes from a held-out scenario."""
     held = sorted(
         {
             (r.get("source") or {}).get("scenario")
             for r in records
-            if (r.get("source") or {}).get("scenario") in BATCH2_SCENARIOS
+            if (r.get("source") or {}).get("scenario") in HELD_OUT_SCENARIOS
         }
     )
     if held:
-        raise HeldOutError(f"batch-2 gold is evaluation only, never split: {held}")
+        raise HeldOutError(f"held-out gold is evaluation only, never split: {held}")
 
 
 def span_hash(span_id: str) -> str:
@@ -127,10 +177,10 @@ def build_split(
     refuse_held_out(scenario_gold)
     # Also by the run a call came from, in case a record's source was lost.
     held = sorted(
-        {variant_of[r["span_id"]][0] for r in scenario_gold} & BATCH2_SCENARIOS
+        {variant_of[r["span_id"]][0] for r in scenario_gold} & HELD_OUT_SCENARIOS
     )
     if held:
-        raise HeldOutError(f"batch-2 calls are evaluation only, never split: {held}")
+        raise HeldOutError(f"held-out calls are evaluation only, never split: {held}")
     side: dict[str, Side] = {r["span_id"]: "test" for r in real_gold}
     shape = {sid: call_shape(c) for sid, c in calls.items()}
     for r in scenario_gold:
@@ -179,8 +229,34 @@ def summary(
 
 
 def all_set_slices() -> dict[tuple[str, str], str]:
-    """(scenario, fixture set) -> slice, from split v2 and v3 together."""
-    return set_slices(SPLIT_V2_FILE) | set_slices(SPLIT_V3_FILE)
+    """(scenario, fixture set) -> slice, from splits v2, v3 and v4 together."""
+    return (
+        set_slices(SPLIT_V2_FILE)
+        | set_slices(SPLIT_V3_FILE)
+        | set_slices(SPLIT_V4_FILE)
+    )
+
+
+def v4_body(scenarios: dict[str, dict[str, str]]) -> dict[str, Any]:
+    """splits/v4.json from the round-2 scenarios' fixture sets."""
+    sets: dict[str, dict[str, list[str]]] = {}
+    for name in sorted(ROUND2_TRAIN_SCENARIOS | ROUND2_TEST_SCENARIOS):
+        for sid, split in sorted(scenarios[name].items()):
+            sets.setdefault(name, {}).setdefault(
+                slice_for(name, split, sid), []
+            ).append(sid)
+    return {
+        "split": "v4",
+        "extends": "v3: splits/v3.json, unchanged (and v1, v2 through it)",
+        "slices": {
+            ROUND2_TRAIN_SLICE: "round 2 group A, less the calibration sets: training",
+            ROUND2_CALIB_SLICE: f"round 2 group A sets in {CALIBRATION_FILE} (fixed before any run): temperature fitting and model selection, never trained on",
+            ROUND2_TEST_SLICE: "round 2 group B, held out whole: evaluation only; never used for training, calibration or model selection, never pooled with other test slices",
+        },
+        "rule": "a call takes the slice of the fixture set its run used (run.json fixture_set); build_split refuses round2_test gold; use_allowed() gives each slice's permitted uses; spangloss.eval.split check-sets",
+        "frozen": "2026-11-17, before any round-2 group B run that counts (the two group-B pilot runs predate the G2 rebuild and are discarded)",
+        "fixture_sets": {k: dict(sorted(v.items())) for k, v in sets.items()},
+    }
 
 
 def set_slices(path: Path = SPLIT_V2_FILE) -> dict[tuple[str, str], str]:
@@ -201,7 +277,7 @@ def check_sets(
     v2 disagree: a set missing from either, or on a different side."""
     problems = []
     declared = {
-        (name, sid): slice_for(name, split)
+        (name, sid): slice_for(name, split, sid)
         for name, sets in scenarios.items()
         for sid, split in sets.items()
     }
@@ -260,13 +336,19 @@ def _inputs() -> tuple[
 
 def main(argv: list[str]) -> int:
     command = argv[0] if argv else "check"
+    if command == "write-v4":
+        body = v4_body(_scenario_sets())
+        SPLIT_V4_FILE.write_text(json.dumps(body, indent=1) + "\n", encoding="utf-8")
+        print(f"wrote {SPLIT_V4_FILE}", file=sys.stderr)
+        return 0
     if command == "check-sets":
         problems = check_sets(all_set_slices(), _scenario_sets())
         for p in problems:
             print(f"error: {p}", file=sys.stderr)
         if not problems:
             print(
-                f"{SPLIT_V2_FILE} and {SPLIT_V3_FILE} match the scenarios' fixture sets",
+                f"{SPLIT_V2_FILE}, {SPLIT_V3_FILE} and {SPLIT_V4_FILE} match the"
+                " scenarios' fixture sets",
                 file=sys.stderr,
             )
         return 1 if problems else 0

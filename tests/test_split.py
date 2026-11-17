@@ -5,10 +5,17 @@ import pytest
 from spangloss.eval.split import (
     BATCH2_SCENARIOS,
     BATCH2_SLICE,
+    ROUND2_CALIB_SLICE,
+    ROUND2_TEST_SCENARIOS,
+    ROUND2_TEST_SLICE,
+    ROUND2_TRAIN_SCENARIOS,
+    ROUND2_TRAIN_SLICE,
     SPLIT_V3_FILE,
+    SPLIT_V4_FILE,
     HeldOutError,
     all_set_slices,
     build_split,
+    calibration_sets,
     check_sets,
     load_split,
     set_slices,
@@ -16,6 +23,8 @@ from spangloss.eval.split import (
     slice_for,
     span_hash,
     summary,
+    use_allowed,
+    v4_body,
 )
 from spangloss.parse.record import ParsedToolCall
 from spangloss.scenarios import load_scenario
@@ -140,6 +149,7 @@ def test_check_sets_covers_v2_and_v3_together() -> None:
         "command_output",
         "hard_negatives_v2",
         *sorted(BATCH2_SCENARIOS),
+        *sorted(ROUND2_TRAIN_SCENARIOS | ROUND2_TEST_SCENARIOS),
     )
     sets = {n: {s.id: s.split for s in load_scenario(n).fixture_sets} for n in names}
     assert check_sets(all_set_slices(), sets) == []
@@ -158,3 +168,71 @@ def test_build_split_refuses_batch2_gold() -> None:
     # Even with the record's source missing, the run it came from decides.
     with pytest.raises(HeldOutError, match="batch2_web"):
         build_split([], [{"span_id": "b2"}], {}, {"b2": ("batch2_web", "review")})
+
+
+# --- split v4: round 2 ---------------------------------------------------------------
+
+
+def _round2_sets() -> dict[str, dict[str, str]]:
+    return {
+        n: {s.id: s.split for s in load_scenario(n).fixture_sets}
+        for n in sorted(ROUND2_TRAIN_SCENARIOS | ROUND2_TEST_SCENARIOS)
+    }
+
+
+def test_split_v4_file_matches_the_round2_scenarios() -> None:
+    import json
+
+    assert json.loads(SPLIT_V4_FILE.read_text(encoding="utf-8")) == v4_body(
+        _round2_sets()
+    )
+
+
+def test_split_v4_holds_all_of_group_b_in_round2_test() -> None:
+    v4 = set_slices(SPLIT_V4_FILE)
+    group_b = {k: v for k, v in v4.items() if k[0] in ROUND2_TEST_SCENARIOS}
+    assert len(group_b) == 24 and set(group_b.values()) == {ROUND2_TEST_SLICE}
+    assert ROUND2_TEST_SLICE not in {
+        v for k, v in v4.items() if k[0] in ROUND2_TRAIN_SCENARIOS
+    }
+
+
+def test_split_v4_puts_exactly_the_calibration_sets_in_round2_calib() -> None:
+    v4 = set_slices(SPLIT_V4_FILE)
+    calib = {k[1] for k, v in v4.items() if v == ROUND2_CALIB_SLICE}
+    assert calib == calibration_sets() and len(calib) == 10
+    train = [k for k, v in v4.items() if v == ROUND2_TRAIN_SLICE]
+    assert len(train) == 50 and not {k[1] for k in train} & calib
+
+
+def test_a_group_b_set_takes_round2_test_whatever_its_split() -> None:
+    for split in ("train", "test", "local"):
+        assert slice_for("round2b_mcp", split, "r2bm01") == ROUND2_TEST_SLICE
+    assert slice_for("round2b_web", "train") == ROUND2_TEST_SLICE
+
+
+def test_a_group_a_set_needs_its_id_for_a_slice() -> None:
+    cal = min(calibration_sets())
+    scenario = "round2a_mcp" if cal.startswith("r2am") else "round2a_web"
+    assert slice_for(scenario, "local", cal) == ROUND2_CALIB_SLICE
+    with pytest.raises(ValueError, match="depends on its id"):
+        slice_for("round2a_mcp", "local")
+
+
+def test_round2_test_may_be_used_for_nothing() -> None:
+    for purpose in ("train", "calibrate", "select"):
+        assert not use_allowed(ROUND2_TEST_SLICE, purpose)
+        assert not use_allowed(BATCH2_SLICE, purpose)
+        assert not use_allowed("batch1_test", purpose)
+    assert use_allowed(ROUND2_TRAIN_SLICE, "train")
+    assert not use_allowed(ROUND2_TRAIN_SLICE, "calibrate")
+    assert use_allowed(ROUND2_CALIB_SLICE, "calibrate")
+    assert not use_allowed(ROUND2_CALIB_SLICE, "train")
+
+
+def test_build_split_refuses_group_b_gold() -> None:
+    gold = [{"span_id": "g1", "source": {"scenario": "round2b_web"}}]
+    with pytest.raises(HeldOutError, match="round2b_web"):
+        build_split([], gold, {}, {"g1": ("round2b_web", "review")})
+    with pytest.raises(HeldOutError, match="round2b_mcp"):
+        build_split([], [{"span_id": "g2"}], {}, {"g2": ("round2b_mcp", "digest")})
