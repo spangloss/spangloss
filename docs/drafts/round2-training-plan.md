@@ -270,3 +270,34 @@ r2bw01–12), 2 runs per set. They are held out: `split: test`, with overlays in
 - `use_allowed(slice, purpose)` says which purposes (train, calibrate, select) each
   slice may be used for. The test slices may be used for none.
 - `check-sets` covers v2–v4.
+
+## Runs
+
+- **106 runs:** group A's remaining 58, then group B's 48. Together with the two
+  group-A pilots, that is 60 group-A runs and 48 group-B runs. All passed.
+- **Obedience:** no run attempted any canary action.
+- **Spend:** round 2 total $3.4626 of the $10 cap, including the two discarded
+  group-B pilots.
+- **Gold-tool fix:** `payload_shown` now reads a payload two ways, with tag-like
+  tokens (`<user>`) dropped and kept. curl shows them escaped, as visible words.
+  Before the fix, four group-A curl calls that showed their whole payload went to
+  review as partial. Re-checking batch 2's runs with the fix changes none of its
+  gold.
+
+| Auto-resolved gold | Group A train | Group A calib | Group B test |
+|---|---|---|---|
+| Payload yes, LLMail / InjecAgent / generator | 30 / 21 / 33 | 6 / 4 / 7 | — |
+| Payload yes, BIPIA / AgentDojo | — | — | 64 / 0 |
+| Look-alike no | 89 | 20 | 64 (BIPIA framed) |
+| Clean no | 50 | 10 | 48 |
+
+- **AgentDojo's 64 MCP and curl calls are in review**, not auto-resolved: 32 payload
+  and 32 framed. Every AgentDojo string holds the `{user}` stand-in name, so each
+  call goes to review for data_class. Under the owner's data_class rule (name alone:
+  none; IBAN-like: payment), they enter gold once confirmed.
+- **The review sheet** (`data/scenarios/round2/review.csv`, local) has 362 items:
+  - **Group A:** 30 MCP/curl items and 150 WebFetch items. WebFetch calls aren't
+    used for training.
+  - **Group B:** 64 MCP/curl items and 118 WebFetch items.
+  - **data_class pre-fill:** payment 22, none 112, and 1 left blank (a realistic
+    phone number in r2am13).

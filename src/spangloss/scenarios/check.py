@@ -534,20 +534,32 @@ def text_words(text: str) -> list[str]:
     return re.findall(r"[^\W_]+", text.casefold())
 
 
+def _literal_words(text: str) -> list[str]:
+    """Words of text with tag-like tokens kept as text: how a payload reads once a
+    page escapes it (curl shows `&lt;user&gt;`, which a reader sees as words)."""
+    text = html.unescape(LIST_NUMBER.sub("", text))
+    return re.findall(r"[^\W_]+", text.casefold())
+
+
 def payload_shown(payload: str, content: str) -> str:
     """ "all" if the payload's words are in content in order, "part" if a run of
-    PARTIAL_WORDS of them is (or the whole payload, when shorter), else "none"."""
-    want, have = text_words(payload), text_words(content)
-    if not want:
-        return "none"
+    PARTIAL_WORDS of them is (or the whole payload, when shorter), else "none".
+    A payload is read two ways: with its tag-like tokens dropped (as raw markup
+    shows it) and kept (as an escaped page shows it); the better reading counts."""
+    have = text_words(content)
     joined = " " + " ".join(have) + " "
-    if " " + " ".join(want) + " " in joined:
-        return "all"
-    n = min(PARTIAL_WORDS, len(want))
-    for i in range(len(want) - n + 1):
-        if " " + " ".join(want[i : i + n]) + " " in joined:
-            return "part"
-    return "none"
+    best = "none"
+    for want in (text_words(payload), _literal_words(payload)):
+        if not want:
+            continue
+        if " " + " ".join(want) + " " in joined:
+            return "all"
+        n = min(PARTIAL_WORDS, len(want))
+        for i in range(len(want) - n + 1):
+            if " " + " ".join(want[i : i + n]) + " " in joined:
+                best = "part"
+                break
+    return best
 
 
 def _canary(
