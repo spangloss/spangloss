@@ -301,3 +301,65 @@ r2bw01–12), 2 runs per set. They are held out: `split: test`, with overlays in
   - **Group B:** 64 MCP/curl items and 118 WebFetch items.
   - **data_class pre-fill:** payment 22, none 112, and 1 left blank (a realistic
     phone number in r2am13).
+
+## Final gold (owner review approved by category)
+
+- **Contact details:** a scan of every group A and B string found a toll-free
+  number and two street addresses (in r2am13 and r2am28). They were swapped for
+  fictional stand-ins, recorded as "contact" edits, and both sets were rerun. Group
+  B was unchanged. Round 2 spend is $3.5441.
+
+| | Auto | Reviewed | Final |
+|---|---|---|---|
+| Group A (MCP and curl; its 150 WebFetch calls are skipped, not used for training) | 330 | 30 | 360 |
+| Group B (all calls) | 226 | 182 (64 MCP/curl, 118 WebFetch: injection no) | 408 |
+| Batch 2, pre-registered + reviews (all calls) | 268 | 26 + 114 WebFetch (injection no) | 408 |
+| Batch 2, audited | 258 | 26 + 110 | 394 |
+
+## Training plan (not run; each spend step needs the owner's approval)
+
+**Records.** These are the requests spangloss sends, built as in the pilot: label_call
+runs against a backend that answers from gold, with injection decided per chunk and
+data_class left out. Only group A's MCP and curl calls are used, split by split v4.
+Group B and batch 2 are refused.
+
+| Partition | Records | Injection yes / no | Source |
+|---|---|---|---|
+| train | 973 | 137 / 307 | pilot train 422 (37 / 156) + `round2_train` 551 (100 / 151) |
+| calibration | 46 | 20 / 25 | `round2_calib`; 64 records whose state also occurs in train dropped (tool loading, shared clean texts) |
+| development | 84 | 9 / 36 | the pilot's, unchanged (baseline comparison) |
+
+- **Longest state:** 2,421 characters, under the pilot's 1,536-token limit.
+  `validate` confirms the limit on CPU before any GPU time, and training stops if
+  any record would be dropped.
+- **Thin calibration:** with 46 records (45 with an injection question), the ECE
+  criterion rests on few points. Fitting also uses the seven other labels' questions.
+
+**Hyperparameters:** as in the pilot (`kev_modal.py::train` from the local
+`spangloss/max-state` kev branch, `triton==3.8.0` pinned; the branch is never pushed).
+- **Model:** a delta LoRA from `jaredpalmer/kev-4b@v1.0`, not from the pilot
+  checkpoint.
+- **Schedule:** 1 epoch, the checkpoint's recipe lr (capped at the trainer's maximum
+  delta lr), its batch and accumulation, seed 0.
+- **Replay:** 2,000 public decision-v7 records; `p_none_pair` 0.25.
+- **State limit:** `--max_state 1536`.
+- **After training:** temperature fitted on calibration (CUDA), development scored
+  against Kev-4B, and the forgetting check on 300 public records.
+
+**GPU and cost** (remaining cap $6.4559):
+
+| Step | Hardware | Bound | Expected |
+|---|---|---|---|
+| `validate` (token limits) | CPU | under $0.05 | about $0.01 |
+| `train` | H100, `--timeout 2400` | $2.63 | about $1.2 (pilot: $0.90 for 422 + 2,000 replay records) |
+| `finish` / pull (if needed) | L40S, 1,400 s | $0.75 | about $0.20 |
+| Local: temperature fit on `round2_calib` (served via MLX), labels for group B, batch 2 and the v0 test | local | $0 | $0 |
+| Jev labels for group B (comparison) | API | cents | cents |
+| **Total** | | **≤ $3.45** | **about $1.4** |
+
+**Then:**
+1. Score group B against the round-2 criteria: framed-quote false positives per
+   source.
+2. Score batch 2 in-source and out-of-source.
+3. Score the seven labels on the v0 test against Kev-4B.
+4. Tear down Modal apps and confirm 0 running.
