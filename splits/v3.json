@@ -1,0 +1,43 @@
+{
+ "split": "v3",
+ "extends": "v2: splits/v2.json, unchanged (and v1 through it)",
+ "slices": {
+  "batch2_eval": "batch 2 (MCP results and web pages), held out whole: evaluation only, never trained on, never pooled with test or batch1_test"
+ },
+ "rule": "a call takes the slice of the fixture set its run used (run.json fixture_set); build_split refuses batch-2 gold; spangloss.eval.split check-sets",
+ "frozen": "2026-11-16, before any batch-2 run",
+ "fixture_sets": {
+  "batch2_mcp": {
+   "batch2_eval": [
+    "b2m01",
+    "b2m02",
+    "b2m03",
+    "b2m04",
+    "b2m05",
+    "b2m06",
+    "b2m07",
+    "b2m08",
+    "b2m09",
+    "b2m10",
+    "b2m11",
+    "b2m12"
+   ]
+  },
+  "batch2_web": {
+   "batch2_eval": [
+    "b2w01",
+    "b2w02",
+    "b2w03",
+    "b2w04",
+    "b2w05",
+    "b2w06",
+    "b2w07",
+    "b2w08",
+    "b2w09",
+    "b2w10",
+    "b2w11",
+    "b2w12"
+   ]
+  }
+ }
+}

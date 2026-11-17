@@ -1,11 +1,19 @@
 from pathlib import Path
 
+import pytest
+
 from spangloss.eval.split import (
+    BATCH2_SCENARIOS,
+    BATCH2_SLICE,
+    SPLIT_V3_FILE,
+    HeldOutError,
+    all_set_slices,
     build_split,
     check_sets,
     load_split,
     set_slices,
     side_of,
+    slice_for,
     span_hash,
     summary,
 )
@@ -111,3 +119,42 @@ def test_a_set_on_the_wrong_side_or_missing_is_reported() -> None:
     assert check_sets(slices, {"s": {"a1": "train", "a2": "test"}}) == []
     problems = check_sets(slices, {"s": {"a1": "test", "a3": "train"}})
     assert len(problems) == 3
+
+
+# --- split v3: batch 2, held out whole ---------------------------------------------
+
+
+def test_split_v3_holds_every_batch2_set_in_batch2_eval() -> None:
+    sets = {
+        name: {s.id: s.split for s in load_scenario(name).fixture_sets}
+        for name in sorted(BATCH2_SCENARIOS)
+    }
+    v3 = set_slices(SPLIT_V3_FILE)
+    assert check_sets(v3, sets) == []
+    assert len(v3) == 24 and set(v3.values()) == {BATCH2_SLICE}
+
+
+def test_check_sets_covers_v2_and_v3_together() -> None:
+    names = (
+        "repo_review",
+        "command_output",
+        "hard_negatives_v2",
+        *sorted(BATCH2_SCENARIOS),
+    )
+    sets = {n: {s.id: s.split for s in load_scenario(n).fixture_sets} for n in names}
+    assert check_sets(all_set_slices(), sets) == []
+
+
+def test_a_batch2_set_takes_batch2_eval_whatever_its_split() -> None:
+    assert slice_for("batch2_mcp", "test") == BATCH2_SLICE
+    assert slice_for("batch2_web", "train") == BATCH2_SLICE
+    assert slice_for("repo_review", "test") == "batch1_test"
+
+
+def test_build_split_refuses_batch2_gold() -> None:
+    gold = [{"span_id": "b1", "source": {"scenario": "batch2_mcp"}}]
+    with pytest.raises(HeldOutError, match="batch2_mcp"):
+        build_split([], gold, {}, {"b1": ("batch2_mcp", "digest")})
+    # Even with the record's source missing, the run it came from decides.
+    with pytest.raises(HeldOutError, match="batch2_web"):
+        build_split([], [{"span_id": "b2"}], {}, {"b2": ("batch2_web", "review")})

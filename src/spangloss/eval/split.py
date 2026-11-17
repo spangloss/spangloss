@@ -16,7 +16,12 @@ Split v2 (splits/v2.json) keeps v1 as it is and adds the batch-1 fixture sets,
 assigned by set before any of them ran. A set's calls take its slice: train, or
 batch1_test, a test slice of its own that is never pooled with v1's test.
 
-    uv run python -m spangloss.eval.split check-sets  # scenarios agree with v2
+    uv run python -m spangloss.eval.split check-sets  # scenarios agree with v2 and v3
+
+Split v3 (splits/v3.json) keeps v1 and v2 as they are and adds batch 2
+(docs/drafts/batch2-design.md): every batch-2 set is in batch2_eval, a slice of its
+own that is never trained on and never pooled with test or batch1_test. Batch-2
+gold can't enter build_split at all: it refuses any record from a batch-2 scenario.
 """
 
 import hashlib
@@ -63,6 +68,33 @@ SPLIT_V2_FILE = Path("splits/v2.json")
 # A fixture set's split in scenario.yaml -> its slice in split v2.
 SET_SLICES = {"train": "train", "test": "batch1_test"}
 
+SPLIT_V3_FILE = Path("splits/v3.json")
+# Batch 2 is held out whole: evaluation only, in its own slice.
+BATCH2_SCENARIOS = frozenset({"batch2_mcp", "batch2_web"})
+BATCH2_SLICE = "batch2_eval"
+
+
+class HeldOutError(ValueError):
+    """Held-out (batch-2) data offered to a split that could put it in train."""
+
+
+def slice_for(scenario: str, split: str) -> str:
+    """The slice a fixture set takes: batch2_eval for any batch-2 set."""
+    return BATCH2_SLICE if scenario in BATCH2_SCENARIOS else SET_SLICES[split]
+
+
+def refuse_held_out(records: list[dict[str, Any]]) -> None:
+    """Raise if any gold record comes from a batch-2 scenario."""
+    held = sorted(
+        {
+            (r.get("source") or {}).get("scenario")
+            for r in records
+            if (r.get("source") or {}).get("scenario") in BATCH2_SCENARIOS
+        }
+    )
+    if held:
+        raise HeldOutError(f"batch-2 gold is evaluation only, never split: {held}")
+
 
 def span_hash(span_id: str) -> str:
     return hashlib.sha256(span_id.encode("utf-8")).hexdigest()
@@ -92,6 +124,13 @@ def build_split(
     variant_of: dict[str, tuple[str, str]],
 ) -> dict[str, Side]:
     """span_id -> side. variant_of maps a scenario span to (scenario, variant)."""
+    refuse_held_out(scenario_gold)
+    # Also by the run a call came from, in case a record's source was lost.
+    held = sorted(
+        {variant_of[r["span_id"]][0] for r in scenario_gold} & BATCH2_SCENARIOS
+    )
+    if held:
+        raise HeldOutError(f"batch-2 calls are evaluation only, never split: {held}")
     side: dict[str, Side] = {r["span_id"]: "test" for r in real_gold}
     shape = {sid: call_shape(c) for sid, c in calls.items()}
     for r in scenario_gold:
@@ -139,6 +178,11 @@ def summary(
     return out
 
 
+def all_set_slices() -> dict[tuple[str, str], str]:
+    """(scenario, fixture set) -> slice, from split v2 and v3 together."""
+    return set_slices(SPLIT_V2_FILE) | set_slices(SPLIT_V3_FILE)
+
+
 def set_slices(path: Path = SPLIT_V2_FILE) -> dict[tuple[str, str], str]:
     """(scenario, fixture set) -> slice, from split v2."""
     body = json.loads(path.read_text(encoding="utf-8"))
@@ -157,7 +201,7 @@ def check_sets(
     v2 disagree: a set missing from either, or on a different side."""
     problems = []
     declared = {
-        (name, sid): SET_SLICES[split]
+        (name, sid): slice_for(name, split)
         for name, sets in scenarios.items()
         for sid, split in sets.items()
     }
@@ -217,12 +261,13 @@ def _inputs() -> tuple[
 def main(argv: list[str]) -> int:
     command = argv[0] if argv else "check"
     if command == "check-sets":
-        problems = check_sets(set_slices(), _scenario_sets())
+        problems = check_sets(all_set_slices(), _scenario_sets())
         for p in problems:
             print(f"error: {p}", file=sys.stderr)
         if not problems:
             print(
-                f"{SPLIT_V2_FILE} matches the scenarios' fixture sets", file=sys.stderr
+                f"{SPLIT_V2_FILE} and {SPLIT_V3_FILE} match the scenarios' fixture sets",
+                file=sys.stderr,
             )
         return 1 if problems else 0
     real, scen, calls, variant_of = _inputs()
