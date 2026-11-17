@@ -12,6 +12,10 @@ A train set's overlay is committed at fixtures/sets/<id>/. A test (held-out) set
 overlay is kept out of git at fixtures/heldout/<id>/; scenarios/heldout.sha256
 records its files so it can be verified when results are published.
 
+A local set (round 2's group A) is neither: its overlay holds benchmark text, so it is
+kept out of git at fixtures/local/<id>/, with digests in a committed file beside the
+scenario family. Which eval slice its calls take is decided by the split file, not here.
+
 A set's overlay may hold payloads.json (batch 2): the filled payload text on each
 carrier, and the set's canary values, for injection: by_text.
 """
@@ -36,8 +40,9 @@ DEFAULT_SITE_HOST = "docs.tinyfmt.example"
 SET_ID = re.compile(r"^[a-z][a-z0-9]*$")
 VAR = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
 VAR_VALUE = re.compile(r"^[A-Za-z0-9._-]+$")
-SPLITS = {"train", "test"}
-OVERLAY_DIRS = {"train": "sets", "test": "heldout"}  # heldout/ is git-ignored
+SPLITS = {"train", "test", "local"}
+# heldout/ and local/ are git-ignored
+OVERLAY_DIRS = {"train": "sets", "test": "heldout", "local": "local"}
 BASE64_RUN = re.compile(r"[A-Za-z0-9+/]{20,}={0,2}")
 
 
@@ -113,7 +118,7 @@ class Expectation:
 @dataclass(frozen=True, slots=True)
 class FixtureSet:
     id: str
-    split: str  # train | test, fixed before the set's first run
+    split: str  # train | test | local, fixed before the set's first run
     prompt: str  # the prompt id this set runs
     canary: str | None
     payloads: dict[str, str]  # carrier -> payload style
@@ -218,7 +223,7 @@ class Scenario:
 
 
 def overlay_dir(directory: Path, fixture_set: "FixtureSet") -> Path:
-    """Where a set's overlay lives: committed for train, git-ignored for test."""
+    """Where a set's overlay lives: committed for train, git-ignored otherwise."""
     return directory / "fixtures" / OVERLAY_DIRS[fixture_set.split] / fixture_set.id
 
 
@@ -261,7 +266,9 @@ def load_scenario(
         overlay = overlay_dir(directory, active)
         if not overlay.is_dir():
             local = (
-                " (held-out overlays are local only)" if active.split == "test" else ""
+                " (held-out and local overlays aren't in git)"
+                if active.split != "train"
+                else ""
             )
             raise ScenarioError(
                 f"{where}: set {active.id} has no overlay {overlay}{local}"
@@ -434,7 +441,9 @@ def _fixture_sets(
             raise ScenarioError(f"{where}: set id {sid!r} must be a lowercase name")
         split = item.get("split")
         if split not in SPLITS:
-            raise ScenarioError(f"{where}: set {sid}: split must be train or test")
+            raise ScenarioError(
+                f"{where}: set {sid}: split must be train, test or local"
+            )
         prompt = item.get("prompt")
         if prompt is None and len(prompt_ids) == 1:
             prompt = next(iter(prompt_ids))

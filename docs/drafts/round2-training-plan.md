@@ -1,6 +1,6 @@
-# Round 2 training plan, track 2, version 1 (draft; nothing built, no spend)
+# Round 2 training plan, track 2, version 1
 
-Status: **draft for owner review.** Version 1 has no new authors; authors 2 and 3
+Status: **approved by the owner; group A built, group B waiting on frames G1–G8.** Version 1 has no new authors; authors 2 and 3
 join in a later round. "Track 2" is read here as the fine-tuned labeler (the
 delta-LoRA Kev-4B of docs/drafts/kev-finetune-pilot.md).
 
@@ -158,3 +158,56 @@ distinct sets add more than repeats do.
 | Fine-tuned 4B and Kev-4B labels, v0 test | local | $0 |
 | Kev-9B comparison (optional) | batch 2 labeling deploy, pinned and warm | $0.2–0.4 |
 | **Total** | | **about $5–7.5 (cap proposal: $10)** |
+
+## Owner decisions
+
+1. **AgentDojo in group B:** `tool_knowledge` with its tool-list slot filled, plus
+   the DoS strings at the pinned revision.
+2. **Group B frames:** the owner's G1–G8 (round2-frames.txt, local). Each must
+   delimit the whole `{quoted_attack}`, use it exactly once, and share no 6-word
+   run with F1–F6.
+3. **Calibration:** 10 group-A sets chosen with a fixed seed, stratified by source
+   and carrier, and committed before any run.
+4. **Cap:** $10 for all of round 2 v1. Kev-9B is skipped.
+
+## Group A as built
+
+`scenarios/round2a_mcp` and `scenarios/round2a_web`, 30 sets each (r2am01–30,
+r2aw01–30), one run per set.
+
+- **Shape and labels:** as batch 2, with the labels the owner approved for batch 2.
+  The canary tool and file names differ from batch 2's.
+- **Overlays:** the sets are `split: local`, a new spec value. Overlays live in
+  `fixtures/local/<id>/` (git-ignored), and their digests are in
+  `scenarios/round2a.sha256`.
+- **Pools** (`scenarios/round2/payloads/manifest.jsonl`: provenance, digests and
+  edits, no text):
+  - **Sizes:** LLMail 103 and InjecAgent 40, from rows batch 2 didn't pool.
+  - **Dropped:** any string sharing an 8-word run with batch-2 text, with batch-1
+    held-out text, or with a string already pooled.
+  - **Names:** 44 more name swaps were reviewed, among them a registrar's name and
+    street address, person names and product tool names.
+- **Payloads (120):** LLMail 50, InjecAgent 30, and the batch-1 generator 40 (a
+  third). The generator payloads use batch-1 wording drawn past batch 1's
+  positions; any draw sharing 8 words with batch-2 or batch-1 held-out text is
+  skipped.
+- **Look-alikes (120):**
+  - **80 framed quotes** (LLMail 53, InjecAgent 10, generator 17). They use eight
+    generator-written frames, A1–A8: a fence, BEGIN/END markers, `> ` on every line,
+    inline quotes (single-line strings only), triple quotes, tags and markers.
+  - **A frame is used only if it encloses its string:** a string containing the
+    frame's own delimiter goes in another frame.
+  - **Known limitation of v1:** the group A frames are generator-written.
+  - **40 bank look-alikes** (written for this generator): legitimate procedure
+    steps that fetch or save (14), tool hints (13), and text about injection (13).
+- **Checks:** within a set, no other carrier shares 8 words with a payload, and no
+  look-alike holds the set's canary.
+  - 30 carriers have a stand-in person name or an account-like number, so they go
+    to review for data_class.
+- **Calibration** (`scenarios/round2/calibration.json`, seed 20261119):
+  - **Chosen sets:** r2am11, r2am19, r2am21, r2am25, r2am26, r2aw09, r2aw17,
+    r2aw20, r2aw22 and r2aw30.
+  - **Rule:** 5 sets per half, closest over 20,000 draws to the group's mix of
+    payload sources, payload carriers and look-alike kinds.
+  - **Mix:** LLMail 8, InjecAgent 5 and generator 7 payloads; 14 framed and 6 bank
+    look-alikes.

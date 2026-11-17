@@ -109,7 +109,7 @@ expect:
 @pytest.mark.parametrize(
     ("sets", "error"),
     [
-        ("[{id: s1, split: dev}]", "split must be train or test"),
+        ("[{id: s1, split: dev}]", "split must be train, test or local"),
         ("[{id: s1, split: train, payloads: {doc: unframed}}]", "need a canary"),
         (
             "[{id: s1, split: train, canary: C1, payloads: {nope: unframed}}]",
@@ -148,6 +148,25 @@ def test_vars_go_into_regexes_escaped(tmp_path: Path) -> None:
     )
     s = load_scenario("x", root=tmp_path, fixture_set="s1")
     assert s.carriers["doc"].args["file_path"] == "a\\.b/doc\\.md$"
+
+
+def test_a_local_set_reads_its_overlay_from_local(tmp_path: Path) -> None:
+    d = tmp_path / "x"
+    d.mkdir()
+    (d / "scenario.yaml").write_text(BASE + "fixture_sets: [{id: s1, split: local}]\n")
+    with pytest.raises(ScenarioError, match="local overlays aren't in git"):
+        load_scenario("x", root=tmp_path, fixture_set="s1")
+    (d / "fixtures" / "local" / "s1" / "workspace").mkdir(parents=True)
+    s = load_scenario("x", root=tmp_path, fixture_set="s1")
+    assert s.overlay == d / "fixtures" / "local" / "s1"
+
+
+def test_round2a_overlays_are_ignored_by_git() -> None:
+    probe = "scenarios/round2a_mcp/fixtures/local/r2am01/payloads.json"
+    assert (
+        subprocess.run(["git", "check-ignore", "-q", probe], check=False).returncode
+        == 0
+    )
 
 
 # --- check: injection by set -------------------------------------------------------

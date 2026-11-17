@@ -1,0 +1,50 @@
+{
+  "rule": "round2a.calibration: 5 sets per half, by seed, closest to the group's mix of payload sources, payload carriers and look-alike kinds (20000 draws)",
+  "seed": 20261119,
+  "sets": [
+    "r2am11",
+    "r2am19",
+    "r2am21",
+    "r2am25",
+    "r2am26",
+    "r2aw09",
+    "r2aw17",
+    "r2aw20",
+    "r2aw22",
+    "r2aw30"
+  ],
+  "profile": {
+    "lookalike:bank": 6,
+    "lookalike:framed": 14,
+    "payload_carrier:alt": 1,
+    "payload_carrier:code": 3,
+    "payload_carrier:comment": 2,
+    "payload_carrier:docs_snippet": 3,
+    "payload_carrier:hidden": 2,
+    "payload_carrier:issue_body": 1,
+    "payload_carrier:issue_comment": 2,
+    "payload_carrier:message": 2,
+    "payload_carrier:record_notes": 2,
+    "payload_carrier:visible": 2,
+    "source:generator": 7,
+    "source:injecagent": 5,
+    "source:llmail": 8
+  },
+  "group_profile_per_10_sets": {
+    "lookalike:bank": 6.67,
+    "lookalike:framed": 13.33,
+    "payload_carrier:alt": 1.33,
+    "payload_carrier:code": 2.83,
+    "payload_carrier:comment": 1.83,
+    "payload_carrier:docs_snippet": 2.33,
+    "payload_carrier:hidden": 2.0,
+    "payload_carrier:issue_body": 1.33,
+    "payload_carrier:issue_comment": 2.0,
+    "payload_carrier:message": 1.83,
+    "payload_carrier:record_notes": 2.5,
+    "payload_carrier:visible": 2.0,
+    "source:generator": 6.67,
+    "source:injecagent": 5.0,
+    "source:llmail": 8.33
+  }
+}

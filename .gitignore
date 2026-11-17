@@ -262,6 +262,8 @@ data/kev9b/
 # lists their files by digest. The batch-1 generator stays local too, since it
 # determines the held-out text.
 scenarios/*/fixtures/heldout/
+# Round 2 group A (split: local): benchmark text stays local; digests are committed.
+scenarios/*/fixtures/local/
 scenarios/_gen/
 
 # fine-tune records: contain tool output from scenario runs
@@ -271,3 +273,6 @@ data/finetune/
 scenarios/batch2/payloads/hand/
 scenarios/batch2/payloads/benchmark/
 data/benchmarks/
+# round 2 payload text stays local; the edit manifest is committed
+scenarios/round2/payloads/benchmark/
+scenarios/round2/payloads/generated/
