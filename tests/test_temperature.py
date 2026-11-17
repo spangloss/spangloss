@@ -55,3 +55,26 @@ def test_capture_scores_only_requests_matching_a_record_state() -> None:
 
     fit = report(rows * 10, counts)
     assert fit.accuracy == 1.0 and fit.temperature < 1.0  # right and underconfident
+
+
+def test_records_take_meta_from_the_split_s_meta_file(tmp_path) -> None:
+    import json
+
+    import pytest
+
+    from spangloss.cli import with_meta
+
+    (tmp_path / "split").mkdir()
+    (tmp_path / "meta").mkdir()
+    records = [{"state": {}, "questions": {}}, {"state": {}, "questions": {}}]
+    path = tmp_path / "split" / "calibration.jsonl"
+    meta = tmp_path / "meta" / "calibration.meta.jsonl"
+    meta.write_text("\n".join(json.dumps({"span_id": s}) for s in ("a", "b")) + "\n")
+    joined = with_meta(records, path, None)
+    assert [r["meta"]["span_id"] for r in joined] == ["a", "b"]
+    meta.write_text(json.dumps({"span_id": "a"}) + "\n")
+    with pytest.raises(ValueError, match="1 lines for 2 records"):
+        with_meta(records, path, None)
+    assert with_meta([{"meta": {"span_id": "x"}}], path, None)[0]["meta"] == {
+        "span_id": "x"
+    }

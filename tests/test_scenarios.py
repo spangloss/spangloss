@@ -946,3 +946,19 @@ def test_poisoned_dependency_glob_into_node_modules_by_pattern_is_a_lib_search()
     assert gold["g1"]["labels"]["sec.trifecta.private_source"] == "no"
     assert gold["g1"]["labels"]["sec.trifecta.untrusted_source"] == "yes"
     assert gold["g2"]["source"]["expectation"] == "search-project"
+
+
+def test_check_writes_only_the_checked_runs_calls(tmp_path: Path) -> None:
+    from spangloss.cli import _combine_calls
+
+    dirs = []
+    for name, span in (("run-a", "a1"), ("run-b", "b1")):
+        d = tmp_path / name
+        d.mkdir()
+        (d / "check.json").write_text(json.dumps({"passed": True}))
+        c = call(span, "Read", {"file_path": "/workspace/x"}, "x")
+        (d / "tool_calls.jsonl").write_text(json.dumps(c.to_dict()) + "\n")
+        dirs.append(d)
+    out = tmp_path / "calls.jsonl"
+    _combine_calls([dirs[0]], out)
+    assert [json.loads(x)["span_id"] for x in out.read_text().splitlines()] == ["a1"]

@@ -7,6 +7,7 @@ import re
 import sys
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 from spangloss import __version__
 from spangloss.backends import Backend
@@ -235,6 +236,13 @@ def main(argv: list[str] | None = None) -> int:
         help="the calibration partition: System One records (state, questions)",
     )
     fit.add_argument(
+        "--meta",
+        type=Path,
+        help="the records' metadata, one line per record in the same order, when the"
+        " records don't carry a meta field (default: meta/<name>.meta.jsonl beside"
+        " the records' folder, if present)",
+    )
+    fit.add_argument(
         "--input",
         type=Path,
         action="append",
@@ -349,6 +357,24 @@ def _run(args: argparse.Namespace) -> int:
     return _parse(args.input, args.logs, args.output)
 
 
+def with_meta(
+    records: list[dict[str, Any]], path: Path, meta: Path | None
+) -> list[dict[str, Any]]:
+    """Records with their meta field. A split keeps it in a separate, line-aligned
+    file (split/<name>.jsonl and meta/<name>.meta.jsonl); records that already
+    carry it are returned as they are."""
+    if all("meta" in r for r in records):
+        return records
+    meta = meta or path.parent.parent / "meta" / f"{path.stem}.meta.jsonl"
+    if not meta.is_file():
+        raise ValueError(f"{path}: records carry no meta and there is no {meta}")
+    with meta.open(encoding="utf-8") as f:
+        metas = [json.loads(line) for line in f if line.strip()]
+    if len(metas) != len(records):
+        raise ValueError(f"{meta}: {len(metas)} lines for {len(records)} records")
+    return [r | {"meta": m} for r, m in zip(records, metas)]
+
+
 def _fit_temperature(args: argparse.Namespace) -> int:
     from spangloss.eval.temperature import capture_rows, format_fit, report
 
@@ -367,6 +393,11 @@ def _fit_temperature(args: argparse.Namespace) -> int:
         return 1
     with args.records.open(encoding="utf-8") as f:
         records = [json.loads(line) for line in f if line.strip()]
+    try:
+        records = with_meta(records, args.records, args.meta)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
     wanted = {r["meta"]["span_id"] for r in records}
     calls = [c for path in args.input for c in read_calls(path) if c.span_id in wanted]
     found = {c.span_id for c in calls}
@@ -738,15 +769,17 @@ def _scenario_check(
         for record in gold.values():
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     tmp.replace(gold_path)
-    _combine_calls(RUNS_DIR, calls_path)
+    _combine_calls(run_dirs, calls_path)
     return 1 if failed else 0
 
 
-def _combine_calls(runs_dir: Path, out: Path) -> None:
-    """Every passing run's calls in one file, the input for spangloss label."""
+def _combine_calls(run_dirs: list[Path], out: Path) -> None:
+    """The passing runs' calls in one file, the input for spangloss label. Only
+    the runs this check covered (the named ones, or every run when none were
+    named), so a batch's calls file never picks up another batch's runs."""
     seen: set[str] = set()
     with out.open("w", encoding="utf-8") as f:
-        for run_dir in sorted(runs_dir.glob("*")):
+        for run_dir in sorted(run_dirs):
             check = run_dir / "check.json"
             if not check.exists() or not json.loads(check.read_text())["passed"]:
                 continue
