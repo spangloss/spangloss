@@ -182,8 +182,10 @@ auto-resolved gold only (MCP and curl); WebFetch calls are scored after review.
 ## Spend
 
 - **Agent runs:** $1.5010 (pilots, including the failed b2w01 v1, plus 46).
-- **Kev-9B on Modal:** about $0.5–0.8 (estimated from container time): two
-  crash-looping deploys (an unpinned Triton on `kev` main; the pin is on the local
-  `spangloss/max-state` branch) and one ~8-minute labeling deploy. 0 apps running.
+- **Kev-9B on Modal:** $0.9832, confirmed by Modal's hourly billing report
+  ($0.8205 for 00:00–01:00 UTC across three instances, $0.1628 for 01:00–02:00).
+  Most of it is two crash-looping deploys (an unpinned Triton on `kev` main; the pin
+  is on the local `spangloss/max-state` branch); labeling took about 8 minutes.
+  0 apps running.
 - **Jev:** not reported by the API; previous batches cost about $0.01 per hundred calls.
 - **Kev-4B and Kev-4B-FT:** local, free.
