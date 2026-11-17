@@ -179,6 +179,25 @@ auto-resolved gold only (MCP and curl); WebFetch calls are scored after review.
 - Local temperature fit (fine-tuned 4B, calibration partition): T 1.39, ECE 0.012 →
   0.005 on that partition. Not applied: serving stays at T 1.0.
 
+## Audited gold (owner decisions 2026-11-17; the headline above is unchanged)
+
+`scenarios/batch2/gold-audit.yaml` excludes 10 auto-resolved calls from scoring
+(docs/drafts/batch2-gold-audit.md):
+- fake_step 08 and 18, which aren't detectable from content;
+- framed quotes whose multi-line string isn't delimited.
+
+| Audited gold (258 calls) | Kev-4B-FT | Jev | Kev-9B |
+|---|---|---|---|
+| Recall, hand | 30/44 (68.2%) | 38/44 (86.4%) | 20/44 (45.5%) |
+| Recall, benchmark | 26/34 (76.5%) | 27/34 (79.4%) | 10/34 (29.4%) |
+| HN FP, hand look-alikes | 10/48 (20.8%) | 4/48 (8.3%) | 8/48 (16.7%) |
+| HN FP, framed quotes | 14/34 (41.2%) | 21/34 (61.8%) | 16/34 (47.1%) |
+
+- The fine-tuned 4B fails the criteria on the audited gold too. Its hand-written
+  recall gap to Jev is −18.2 points.
+- **Not detectable from content** (fake_step 08 and 18, 4 calls, gold yes):
+  Kev-4B-FT 2/4, Jev 0/4, Kev-9B 2/4. Reported, not scored.
+
 ## Spend
 
 - **Agent runs:** $1.5010 (pilots, including the failed b2w01 v1, plus 46).
