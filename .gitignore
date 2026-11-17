@@ -276,3 +276,4 @@ data/benchmarks/
 # round 2 payload text stays local; the edit manifest is committed
 scenarios/round2/payloads/benchmark/
 scenarios/round2/payloads/generated/
+scenarios/round2/payloads/frames/

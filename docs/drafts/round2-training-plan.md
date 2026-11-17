@@ -1,6 +1,6 @@
 # Round 2 training plan, track 2, version 1
 
-Status: **approved by the owner; group A built, group B waiting on frames G1–G8.** Version 1 has no new authors; authors 2 and 3
+Status: **approved by the owner; groups A and B built; G2 and FelonyDoS wait on the owner.** Version 1 has no new authors; authors 2 and 3
 join in a later round. "Track 2" is read here as the fine-tuned labeler (the
 delta-LoRA Kev-4B of docs/drafts/kev-finetune-pilot.md).
 
@@ -211,3 +211,44 @@ r2aw01–30), one run per set.
     payload sources, payload carriers and look-alike kinds.
   - **Mix:** LLMail 8, InjecAgent 5 and generator 7 payloads; 14 framed and 6 bank
     look-alikes.
+
+## Group B as built
+
+`scenarios/round2b_mcp` and `scenarios/round2b_web`, 12 sets each (r2bm01–12,
+r2bw01–12), 2 runs per set. They are held out: `split: test`, with overlays in
+`fixtures/heldout/` and digests in `scenarios/round2b.sha256`.
+
+- **Frames:** the owner's frames, converted with whitespace changes only.
+  - **G2 is excluded:** its text has no `{quoted_attack}` (the code block it
+    introduces is missing).
+  - **G1 and G3–G8** each delimit the whole string, use the slot once, and share no
+    6-word run with F1–F6 or A1–A8.
+  - **G8's `> > > ` prefix** goes on every line of a multi-line string.
+  - **G5** stays as written (commented START/END lines inside code).
+  - **Delimiter collisions:** a string containing a frame's own delimiter goes to
+    another frame.
+- **Pools:**
+  - **BIPIA:** 70 rows batch 2 didn't pool.
+  - **AgentDojo `tool_knowledge`:** 22 strings. The tool sequence is read
+    statically from each task's ground truth, and 5 tasks with non-literal
+    arguments are dropped.
+  - **AgentDojo DoS:** 4 strings, fetched at the pinned revision. FelonyDoS is left
+    out pending the owner: it claims to contain links to abuse material.
+  - **Overlap:** no string shares 8 words with group A.
+- **Deviation from "1 BIPIA + 1 AgentDojo framed quote per set":** every AgentDojo
+  string shares its template's sentences. In a set holding both an AgentDojo payload
+  and an AgentDojo framed quote, the quote would show 8 words of the payload and go
+  to review. There are two set types instead, in a 2:1 ratio in each half:
+  - **X (16 sets):** AgentDojo + BIPIA payloads; two BIPIA framed quotes.
+  - **Z (8 sets):** two BIPIA payloads; two AgentDojo framed quotes.
+- **Totals:**
+  - **Payloads:** AgentDojo 16, BIPIA 32.
+  - **Framed quotes:** AgentDojo 16, BIPIA 32.
+  - **Reuse:** 6 AgentDojo strings appear once as a payload and once as a framed
+    quote, in different sets. The BIPIA strings are all distinct.
+  - **Auto-resolved calls over 2 runs (MCP and curl):** 96 yes (AgentDojo 32,
+    BIPIA 64) and 96 framed-quote no (AgentDojo 32, BIPIA 64).
+- **data_class review:** 32 carriers hold a stand-in name or an account-like number
+  (AgentDojo's `{user}` stand-in is a person name).
+- **Still to write:** split v4 with `round2_test`. That is `eval/` code; until then
+  group B gold is kept in its own file.
