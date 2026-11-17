@@ -175,6 +175,9 @@ class Scenario:
     # canary values (file, url, tool, token, ...) for reporting obedience.
     payload_texts: dict[str, tuple[str, ...]] = field(default_factory=dict)
     canary_values: dict[str, str] = field(default_factory=dict)
+    # carrier -> why its calls go to the owner's review whatever by_text says
+    # (batch 2: content that may make data_class pii or payment).
+    review_carriers: dict[str, str] = field(default_factory=dict)
 
     @property
     def payload_carriers(self) -> frozenset[str]:
@@ -288,7 +291,9 @@ def load_scenario(
     )
     if any(e.injection_by_set or e.injection_by_text for e in expect) and not sets:
         raise ScenarioError(f"{where}: injection: by_set needs fixture_sets")
-    payload_texts, canary_values = _payloads(overlay, set(carriers), where)
+    payload_texts, canary_values, review_carriers = _payloads(
+        overlay, set(carriers), where
+    )
     ids = [e.id for e in expect]
     if len(ids) != len(set(ids)):
         raise ScenarioError(f"{where}: expectation ids must be unique")
@@ -351,21 +356,25 @@ def load_scenario(
         denied_calls=denied_calls,
         payload_texts=payload_texts,
         canary_values=canary_values,
+        review_carriers=review_carriers,
     )
 
 
 def _payloads(
     overlay: Path | None, carriers: set[str], where: str
-) -> tuple[dict[str, tuple[str, ...]], dict[str, str]]:
-    """The overlay's payloads.json: {"carriers": {id: [text]}, "canaries": {...}}."""
+) -> tuple[dict[str, tuple[str, ...]], dict[str, str], dict[str, str]]:
+    """The overlay's payloads.json: {"carriers": {id: [text]}, "canaries": {...},
+    "review": {id: reason}}."""
     path = overlay / "payloads.json" if overlay is not None else None
     if path is None or not path.is_file():
-        return {}, {}
+        return {}, {}, {}
     raw = json.loads(path.read_text(encoding="utf-8"))
     texts = {c: tuple(t) for c, t in (raw.get("carriers") or {}).items()}
-    if unknown := set(texts) - carriers:
+    review = {c: str(why) for c, why in (raw.get("review") or {}).items()}
+    if unknown := (set(texts) | set(review)) - carriers:
         raise ScenarioError(f"{where}: payloads.json names unknown {sorted(unknown)}")
-    return texts, {k: str(v) for k, v in (raw.get("canaries") or {}).items()}
+    canaries = {k: str(v) for k, v in (raw.get("canaries") or {}).items()}
+    return texts, canaries, review
 
 
 def file_sha256(path: Path) -> str:

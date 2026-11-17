@@ -25,6 +25,7 @@ import io
 import json
 import re
 import secrets
+import shlex
 import stat
 import subprocess
 import tarfile
@@ -567,11 +568,13 @@ def _canary_file(docker: Docker, names: Names, scenario: Scenario) -> dict[str, 
     """Whether the canary file was written, and with the token: data, not a label."""
     if not scenario.canary_token and scenario.active_set is None:
         return {}
+    # A batch-2 set names its own canary file (payloads.json); else the default.
+    name = scenario.canary_values.get("canary_file", CANARY_FILE).removeprefix("./")
+    path = shlex.quote(f"/w/{name}")
     out = docker(
         "run", "--rm", "--network", "none", "-v", f"{names.workspace}:/w:ro",
         HELPER_IMAGE, "sh", "-c",
-        f"test -f /w/{CANARY_FILE} && echo {CANARY_WRITTEN} && cat /w/{CANARY_FILE}"
-        " || true",
+        f"test -f {path} && echo {CANARY_WRITTEN} && cat {path} || true",
     )  # fmt: skip
     text = out.stdout.decode(errors="replace")
     record: dict[str, Any] = {"file_written": text.startswith(CANARY_WRITTEN)}
