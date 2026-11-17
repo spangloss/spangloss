@@ -1,6 +1,6 @@
 # Round 2 training plan, track 2, version 1
 
-Status: **approved by the owner; groups A and B built; G2 and FelonyDoS wait on the owner.** Version 1 has no new authors; authors 2 and 3
+Status: **approved by the owner; groups A and B built; split v4 drafted.** Version 1 has no new authors; authors 2 and 3
 join in a later round. "Track 2" is read here as the fine-tuned labeler (the
 delta-LoRA Kev-4B of docs/drafts/kev-finetune-pilot.md).
 
@@ -219,21 +219,23 @@ r2bw01–12), 2 runs per set. They are held out: `split: test`, with overlays in
 `fixtures/heldout/` and digests in `scenarios/round2b.sha256`.
 
 - **Frames:** the owner's frames, converted with whitespace changes only.
-  - **G2 is excluded:** its text has no `{quoted_attack}` (the code block it
-    introduces is missing).
-  - **G1 and G3–G8** each delimit the whole string, use the slot once, and share no
-    6-word run with F1–F6 or A1–A8.
+  - **All eight** (G1–G8) delimit the whole string, use the slot once, and share
+    no 6-word run with F1–F6 or A1–A8.
+  - **G2** was fixed by the owner after the first build: a ``` fence now surrounds
+    the slot.
   - **G8's `> > > ` prefix** goes on every line of a multi-line string.
   - **G5** stays as written (commented START/END lines inside code).
   - **Delimiter collisions:** a string containing a frame's own delimiter goes to
-    another frame.
+    another frame. No pooled string collides with any frame.
+  - **Usage:** each frame is used 6 times.
 - **Pools:**
   - **BIPIA:** 70 rows batch 2 didn't pool.
   - **AgentDojo `tool_knowledge`:** 22 strings. The tool sequence is read
     statically from each task's ground truth, and 5 tasks with non-literal
     arguments are dropped.
-  - **AgentDojo DoS:** 4 strings, fetched at the pinned revision. FelonyDoS is left
-    out pending the owner: it claims to contain links to abuse material.
+  - **AgentDojo DoS:** 4 strings, fetched at the pinned revision.
+  - **FelonyDoS is excluded permanently** (owner decision): it claims to contain
+    links to abuse material.
   - **Overlap:** no string shares 8 words with group A.
 - **Deviation from "1 BIPIA + 1 AgentDojo framed quote per set":** every AgentDojo
   string shares its template's sentences. In a set holding both an AgentDojo payload
@@ -250,5 +252,21 @@ r2bw01–12), 2 runs per set. They are held out: `split: test`, with overlays in
     BIPIA 64) and 96 framed-quote no (AgentDojo 32, BIPIA 64).
 - **data_class review:** 32 carriers hold a stand-in name or an account-like number
   (AgentDojo's `{user}` stand-in is a person name).
-- **Still to write:** split v4 with `round2_test`. That is `eval/` code; until then
-  group B gold is kept in its own file.
+- **Set types:** X and Z were approved by the owner. Framed-quote false positives
+  are reported per source.
+- **Stale pilots:** the two group-B pilot runs (r2bm01, r2bw03) predate the rebuild
+  with G2. They are discarded (`data/scenarios/round2/stale/`), so group B needs all
+  48 runs.
+
+## Split v4 (draft, `src/spangloss/eval/split.py`, `splits/v4.json`)
+
+| Slice | Sets | Use |
+|---|---|---|
+| `round2_train` | 50 group-A sets | training |
+| `round2_calib` | the 10 sets in `scenarios/round2/calibration.json` | temperature fitting and model selection; never trained on |
+| `round2_test` | all 24 group-B sets | evaluation only; never training, calibration or model selection |
+
+- `build_split` refuses group-B gold, as it does batch 2's.
+- `use_allowed(slice, purpose)` says which purposes (train, calibrate, select) each
+  slice may be used for. The test slices may be used for none.
+- `check-sets` covers v2–v4.
