@@ -1,6 +1,12 @@
 # Batch 2 run notes
 
-Status: **48 runs done 2026-11-17; scored on auto-resolved gold; 140 review items open.** Design: docs/drafts/batch2-design.md.
+Status: **48 runs done 2026-11-17; scored on auto-resolved gold; 140 review items open.**
+
+**Headline (pre-registered criteria, recorded as is): the fine-tuned 4B fails the
+batch-2 success criteria** on both payload sources (recall, hard-negative false
+positives, and the hand-written gap to Jev). See Results.
+
+Design: docs/drafts/batch2-design.md.
 Batch 2 is held out: evaluation only, never trained on.
 
 ## Success criteria (owner, 2026-11-12; recorded before the first run)
