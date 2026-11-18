@@ -346,17 +346,27 @@ Anything found after the freeze goes here, not into the 0.4.0 taxonomy.
 
 ## Next steps
 
-1. **Post-v0 backlog item 1:** the gold consistency review.
-2. **Upstream:** add capture gap 6 (`CLAUDE.md`) to the feature request, #106615.
-3. **Public push checks**, before the repository goes public:
+1. **No more fine-tuning before v0.** Round 2 failed criteria 1–3, so v0 ships without a fine-tuned injection labeler.
+2. **Round 3, post-v0:**
+   - more distinct injection sources;
+   - evaluation held out by source;
+   - paired criteria: false positives no more than 10 points worse than Jev's, **and** recall within N points of Jev's. For an equivalence criterion, the whole 95% interval must lie inside the margin.
+3. **v0 focus:** publish:
+   - the taxonomy;
+   - per-label results, including round 2's failed criteria;
+   - scenario demo traces;
+   - the results section of the site.
+4. **Post-v0 backlog item 1:** the gold consistency review.
+5. **Upstream:** add capture gap 6 (`CLAUDE.md`) to the feature request, #106615.
+6. **Public push checks**, before the repository goes public:
    - a secret scan over the full git history;
    - no real organization names in code, docs, fixtures or commit messages;
    - nothing from `data/` in history;
    - `scenarios publish` with its identity allowlist, path check and fakes gate; it must refuse `publishable: false` runs (`hard_negatives`);
    - the fixtures repo under the spangloss org.
-4. **Remaining scenarios** (post-v0 unless already in flight): `customer_data`, `destructive_delete`, `force_push`, `permissions_change`, and `outbound_send` (needs an egress route for httpbin.org only).
-5. **Grow hand-labeled gold from non-coding sessions;** the taxonomy's intent categories need them.
-6. **Write the per-label results page** and publish by Nov 29.
+7. **Remaining scenarios** (post-v0 unless already in flight): `customer_data`, `destructive_delete`, `force_push`, `permissions_change`, and `outbound_send` (needs an egress route for httpbin.org only).
+8. **Grow hand-labeled gold from non-coding sessions;** the taxonomy's intent categories need them.
+9. **Write the per-label results page** and publish by Nov 29.
 
 ## Working conventions
 
