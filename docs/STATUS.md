@@ -1,6 +1,6 @@
 # Spangloss status
 
-**As of 2026-11-04.** Read this first in a new session, then `CLAUDE.md`, `TAXONOMY.md` and `docs/scenarios-design.md`. Target: public v0 with published per-label evaluation results by **Nov 29, 2026**.
+**As of 2026-11-17** (round 2 results added; earlier sections keep their own dates). Read this first in a new session, then `CLAUDE.md`, `TAXONOMY.md` and `docs/scenarios-design.md`. Target: public v0 with published per-label evaluation results by **Nov 29, 2026**.
 
 ## What's built
 
@@ -273,6 +273,64 @@ Approved by Phil with changes: the framed-examples and guidance sentence in the 
 - **Gold restamped:** all 111 scenario and 20 hand records to 0.4.0, none held back.
 - **Stored labels stamped 0.4.0:** 1,596 scenario and 242 hand rows. They were written on 2026-11-03 at 19:40–19:49, after the final card commits (19:35–19:36), and the cards have changed since only in their `taxonomy` field. Derived rows were rewritten by `rederive`.
 - **Rescored at 0.4.0:** identical to the freeze-preparation numbers above; nothing skipped for a version mismatch.
+
+## Round 2 fine-tune (track 2, v1): results (2026-11-17)
+
+Plan and pre-registered criteria: `docs/drafts/round2-training-plan.md`. Model: delta-LoRA Kev-4B run `spg-r2v1`, trained on group A (936 train records; the batch-1 generator capped at 33 of 100 injection-yes records), served locally. Temperature fitted on `round2_calib` only: **T 2.01**. Nothing was refit and no threshold changed after group B was scored.
+
+**Headline: the round-2 model fails three of the four pre-registered criteria** (1, 2 and 3), at both temperatures. It passes criterion 4.
+
+Criteria on group B (MCP and curl), read exactly as written ("within N points" = no more than N points either side). Rates have 95% Wilson intervals; differences have Newcombe intervals; ECE has a 95% bootstrap interval (2,000 resamples). Temperature scaling changes no answer, so criteria 1, 2 and 4 are identical at T 1.0 and T 2.01.
+
+| Criterion | Round 2, T 1.0 | Round 2, T 2.01 | Reference |
+|---|---|---|---|
+| 1. Injection recall within 10 points of Jev | **Fail:** 60/96, 62.5% [52.5, 71.5]; −21.5 [−33.2, −9.0] | **Fail:** same | Jev 79/94, 84.0% [75.3, 90.1] |
+| 2. FP on look-alikes and framed quotes within 10 points of Jev | **Fail:** 42/96, 43.8% [34.3, 53.7]; −34.4 [−46.2, −20.8] | **Fail:** same | Jev 75/96, 78.1% [68.9, 85.2] |
+| 3. Injection ECE ≤ 0.05 at the fitted T | 0.257 [0.203, 0.314] (not the criterion's temperature) | **Fail:** 0.183 [0.132, 0.236] | Jev 0.183 |
+| 4. Seven labels on the v0 test within 1 point of Kev-4B | **Pass:** 397/405, 98.0% [96.2, 99.0]; +0.0 [−2.1, +2.1] | **Pass:** same | Kev-4B 397/405, 98.0% |
+
+- **Criterion 2 fails in the favourable direction.** The model flags 34 points *fewer* framed quotes than Jev. The criterion as written is two-sided, so it is recorded as a fail. Whether a one-sided reading was intended is the owner's call, and would apply to the next round only. Group B's look-alikes are all framed quotes, so the pooled rate is the framed-quote rate.
+- **Criterion 4 passes on the point estimate.** The interval on the difference (±2.1) is wider than the 1-point margin.
+- **Calibration does not transfer.** At T 2.01, ECE is 0.053 on `round2_calib` but 0.183 on group B.
+- **Jev skipped 2 of 408 group-B calls**, both injection-yes, so Jev's recall is over 94 calls.
+
+### Further breakdowns (reported, not judged)
+
+Group B, framed-quote FPs and recall by source (round 2 / pilot / Jev):
+
+| | Round 2 | Pilot | Jev |
+|---|---|---|---|
+| Recall, AgentDojo | 30/32 (93.8%) | 30/32 (93.8%) | 30/30 (100%) |
+| Recall, BIPIA | 30/64 (46.9%) | 34/64 (53.1%) | 49/64 (76.6%) |
+| Framed FP, AgentDojo | 28/32 (87.5%) | 28/32 (87.5%) | 32/32 (100%) |
+| Framed FP, BIPIA | 14/64 (21.9%) | 17/64 (26.6%) | 43/64 (67.2%) |
+| Clean FP | 0/48 | 2/48 | 0/48 |
+| Injection accuracy | 162/240 (67.5%) | 161/240 (67.1%) | 148/238 (62.2%) |
+
+Batch 2 (pre-registered gold / audited gold):
+
+| | Round 2 | Pilot | Jev | Kev-9B |
+|---|---|---|---|---|
+| Recall, in-source (LLMail, InjecAgent) | 16/18 / 16/18 | 16/18 / 16/18 | 15/18 / 15/18 | 2/18 / 2/18 |
+| Recall, out-of-source (BIPIA, AgentDojo) | 8/16 / 8/16 | 10/16 / 10/16 | 12/16 / 12/16 | 8/16 / 8/16 |
+| Recall, hand-written | 28/48 / 28/44 | 32/48 / 30/44 | 38/48 / 38/44 | 22/48 / 20/44 |
+| Framed FP | 12/40 / 8/34 | 16/40 / 14/34 | 24/40 / 21/34 | 18/40 / 16/34 |
+| Hand look-alike FP | 6/48 / 6/48 | 10/48 / 10/48 | 4/48 / 4/48 | 8/48 / 8/48 |
+| Injection ECE (T 2.01 for round 2) | 0.051 / 0.057 | 0.166 / 0.166 | 0.058 / 0.055 | 0.087 / 0.092 |
+
+Round 2 learned its training sources: in-source recall is 89%, the same as the pilot's. It does not generalise to unseen ones: out-of-source and hand-written recall fell below the pilot's.
+
+Other sets (round 2 / pilot / Kev-4B / Jev):
+
+- **v0 scenario test:** injection 47/47 for all. Seven labels: 397 / 401 / 397 / 397 of 405.
+- **batch1_test:** injection recall 16/17 / 17/17 / – / 17/17 (round 2 misses one fake-delimiter payload), with 0 look-alike FP (the pilot has 1/5). Seven labels: 508 / 514 / 487 / 481 of 518.
+- **Real sessions (20 calls):** 0 injection FP for all. Seven labels: 105/116, 104/116, 100/116, and 102/109 for Jev, which labelled 19 of the 20 calls.
+- **Forgetting:**
+  - On Modal's 417 public regression records, accuracy went from 0.862 to 0.860 and Brier from 0.225 to 0.229.
+  - Secrets recall is 5/5 for round 2 at both temperatures, and 5/5 for the pilot, Kev-4B and Jev.
+- **Seven labels on group B and batch 2:** 99.2% and 100%, against 92.8% and 90.4% for Kev-4B. Group A shares those scenario families, so this is in-distribution and does not show the model has improved generally.
+
+**Spend:** about $4.98 of the $10 round-2 cap (training $1.42; no spend after training). Modal shows 0 apps running; the 8010 and 8011 servers are stopped.
 
 ## Post-v0 backlog
 
